@@ -1,0 +1,31 @@
+[package]
+name = "packdms"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+axum = { version = "0.8.8", features = ["macros", "multipart"] }
+tokio = { version = "1.36", features = ["full"] }
+sqlx = { version = "0.8.6", features = ["runtime-tokio", "tls-rustls", "postgres", "uuid", "chrono", "json"] }
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+uuid = { version = "1.7", features = ["v4", "serde"] }
+chrono = { version = "0.4", features = ["serde"] }
+utoipa = { version = "5.4.0", features = ["axum_extras", "chrono", "uuid"] }
+utoipa-scalar = { version = "0.3.0", features = ["axum"] }
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+jsonwebtoken = { version = "10.3.0", features = ["rust_crypto"] }
+reqwest = { version = "0.12", features = ["json"] }
+openssl = "0.10"
+base64 = "0.22"
+anyhow = "1.0"
+tower-http = { version = "0.6.8", features = ["trace", "request-id", "util", "cors"] }
+bytes = "1.5"
+sha2 = "0.10"
+hex = "0.4"
+dotenvy = "0.15"
+async-trait = "0.1"
+
+[dev-dependencies]
+tower = "0.5"
