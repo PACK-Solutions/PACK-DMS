@@ -1,0 +1,105 @@
+### PackDMS API Typical Usage Scenario
+
+### 1. Create a Document Shell
+# Documents are created as draft shells without content.
+POST http://{{host}}/documents
+Content-Type: application/json
+Authorization: Bearer {{auth_token}}
+
+{
+  "title": "Employee Contract - John Doe",
+  "metadata": {
+    "contract_id": "CON-2026-001",
+    "department": "HR",
+    "type": "employment_agreement"
+  }
+}
+
+> {%
+ client.global.set("document_id", response.body.id);
+ %}
+
+### 2. Upload the first version of the document
+# This is a multipart request. The field name is 'file' as per the API.
+POST http://{{host}}/documents/{{document_id}}/versions
+Authorization: Bearer {{auth_token}}
+Content-Type: multipart/form-data; boundary=boundary
+
+--boundary
+Content-Disposition: form-data; name="file"; filename="contract.pdf"
+Content-Type: application/pdf
+
+< ./sample_contract.pdf
+--boundary--
+
+> {%
+ client.global.set("version_id", response.body.id);
+ %}
+
+### 3. Get document details
+# Verify the document has the current version and metadata.
+GET http://{{host}}/documents/{{document_id}}
+Authorization: Bearer {{auth_token}}
+
+### 4. Search for documents
+# Search by title or metadata (if supported by search query).
+GET http://{{host}}/documents?limit=10&offset=0
+Authorization: Bearer {{auth_token}}
+
+### 5. Patch document metadata
+# Update the metadata field for an existing document.
+PATCH http://{{host}}/documents/{{document_id}}
+Content-Type: application/json
+Authorization: Bearer {{auth_token}}
+
+{
+  "metadata": {
+    "contract_id": "CON-2026-001",
+    "department": "HR",
+    "type": "employment_agreement",
+    "signed": true
+  }
+}
+
+### 6. List all versions of a document
+GET http://{{host}}/documents/{{document_id}}/versions
+Authorization: Bearer {{auth_token}}
+
+### 7. Download a specific version
+GET http://{{host}}/documents/{{document_id}}/versions/{{version_id}}/download
+Authorization: Bearer {{auth_token}}
+
+### 8. Change document status
+# Move the document from 'draft' to 'active'.
+POST http://{{host}}/documents/{{document_id}}/status
+Content-Type: application/json
+Authorization: Bearer {{auth_token}}
+
+{
+  "status": "active"
+}
+
+### 9. Get document ACL rules
+GET http://{{host}}/documents/{{document_id}}/acl
+Authorization: Bearer {{auth_token}}
+
+### 10. Update document ACL rules
+# Set permissions for specific users or groups.
+PUT http://{{host}}/documents/{{document_id}}/acl
+Content-Type: application/json
+Authorization: Bearer {{auth_token}}
+
+[
+  {
+    "document_id": "{{document_id}}",
+    "grantee_type": "user",
+    "grantee_id": "00000000-0000-0000-0000-000000000001",
+    "permission": "read",
+    "created_at": "2026-02-24T10:05:00Z"
+  }
+]
+
+### 11. View system audit logs (Admin only)
+# Requires 'admin' role in JWT scopes.
+GET http://{{host}}/audit?limit=20
+Authorization: Bearer {{admin_token}}

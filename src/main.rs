@@ -21,24 +21,31 @@ async fn main() -> anyhow::Result<()> {
             tracing_subscriber::EnvFilter::try_from_default_env()
                 .unwrap_or_else(|_| "info,tower_http=info".into()),
         )
-        .with(tracing_subscriber::fmt::layer())
+        .with(tracing_subscriber::fmt::layer().with_writer(std::io::stdout))
         .init();
+
+    tracing::info!("Starting application...");
 
     let database_url = std::env::var("DATABASE_URL").expect("DATABASE_URL is required");
     let issuer = std::env::var("JWT_ISSUER").expect("JWT_ISSUER is required");
     let jwks_url = std::env::var("JWKS_URL").expect("JWKS_URL is required");
     let storage_path = std::env::var("STORAGE_PATH").unwrap_or_else(|_| "./data".into());
 
+    tracing::info!("Connecting to database at: {}", database_url);
     let pool = PgPoolOptions::new()
         .max_connections(5)
         .connect(&database_url)
         .await?;
+    
+    tracing::info!("Running migrations...");
     sqlx::migrate!().run(&pool).await?;
 
+    tracing::info!("Blob storage path: {}", storage_path);
     let storage =
         Arc::new(FileBlobStore::new(storage_path).await?) as Arc<dyn infra::storage::BlobStore>;
 
     // Fetch JWKS
+    tracing::info!("Fetching JWKS from: {}", jwks_url);
     let jwks: jsonwebtoken::jwk::JwkSet = if jwks_url.starts_with("http") {
         let response = reqwest::get(&jwks_url).await?;
         response.json().await?
@@ -74,8 +81,9 @@ async fn main() -> anyhow::Result<()> {
     let addr: SocketAddr = std::env::var("BIND")
         .unwrap_or_else(|_| "0.0.0.0:8080".to_string())
         .parse()?;
-    tracing::info!("listening on {}", addr);
-    tracing::info!("OpenAPI documentation available at: http://{}/docs", addr);
+    tracing::info!("Server running at: http://{}", addr);
+    tracing::info!("Swagger UI: http://{}/docs", addr);
+    tracing::info!("Swagger/OpenAPI JSON: http://{}/docs/openapi.json", addr);
     axum::serve(tokio::net::TcpListener::bind(addr).await?, app).await?;
     Ok(())
 }
