@@ -1,11 +1,15 @@
+use axum::{
+    body::Body,
+    http::{Request, StatusCode},
+    response::Response,
+};
 use chrono::Utc;
+use jsonwebtoken::jwk::{CommonParameters, Jwk, JwkSet, KeyAlgorithm, RSAKeyParameters};
 use packdms::{api, infra};
 use sqlx::postgres::PgPoolOptions;
 use std::sync::Arc;
-use uuid::Uuid;
-use axum::{http::{Request, StatusCode}, body::Body, response::Response};
 use tower::util::ServiceExt; // for `oneshot`
-use jsonwebtoken::jwk::{JwkSet, Jwk, CommonParameters, RSAKeyParameters, KeyAlgorithm};
+use uuid::Uuid;
 
 #[tokio::test]
 async fn upload_version_updates_current_and_increments() -> anyhow::Result<()> {
@@ -20,9 +24,15 @@ async fn upload_version_updates_current_and_increments() -> anyhow::Result<()> {
     // public_pem is not needed if we build JWK directly from rsa_key
 
     // Create a JWK from the public key
-    let n = base64::Engine::encode(&base64::engine::general_purpose::URL_SAFE_NO_PAD, rsa_key.n().to_vec());
-    let e = base64::Engine::encode(&base64::engine::general_purpose::URL_SAFE_NO_PAD, rsa_key.e().to_vec());
-    
+    let n = base64::Engine::encode(
+        &base64::engine::general_purpose::URL_SAFE_NO_PAD,
+        rsa_key.n().to_vec(),
+    );
+    let e = base64::Engine::encode(
+        &base64::engine::general_purpose::URL_SAFE_NO_PAD,
+        rsa_key.e().to_vec(),
+    );
+
     let kid = "test-kid";
     let jwk = Jwk {
         common: CommonParameters {
@@ -64,7 +74,7 @@ async fn upload_version_updates_current_and_increments() -> anyhow::Result<()> {
     sqlx::query("INSERT INTO users (id, email, roles, status, created_at) VALUES ($1,$2,$3,$4,$5)")
         .bind(user_id)
         .bind(&email)
-        .bind(&vec!["user".to_string()])
+        .bind(vec!["user".to_string()])
         .bind("active")
         .bind(Utc::now())
         .execute(&pool)
@@ -84,6 +94,9 @@ async fn upload_version_updates_current_and_increments() -> anyhow::Result<()> {
         metadata: serde_json::json!({}),
         created_at: now,
         updated_at: now,
+        deleted_at: None,
+        deleted_by: None,
+        archived_at: None,
     };
     infra::db::DocumentRepo::create(&mut tx, &doc).await?;
     tx.commit().await?;
@@ -103,7 +116,13 @@ async fn upload_version_updates_current_and_increments() -> anyhow::Result<()> {
     )?;
 
     // helper to build multipart body
-    fn multipart_body(boundary: &str, name: &str, filename: &str, content_type: &str, content: &str) -> (String, Vec<u8>) {
+    fn multipart_body(
+        boundary: &str,
+        name: &str,
+        filename: &str,
+        content_type: &str,
+        content: &str,
+    ) -> (String, Vec<u8>) {
         let mut body = Vec::new();
         let mut push = |s: &str| body.extend_from_slice(s.as_bytes());
         push(&format!("--{}\r\n", boundary));

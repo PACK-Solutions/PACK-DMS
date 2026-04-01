@@ -1,4 +1,4 @@
-use jsonwebtoken::jwk::{JwkSet, Jwk, CommonParameters, RSAKeyParameters, KeyAlgorithm};
+use jsonwebtoken::jwk::{CommonParameters, Jwk, JwkSet, KeyAlgorithm, RSAKeyParameters};
 use openssl::rsa::Rsa;
 use std::fs;
 use std::path::Path;
@@ -17,10 +17,16 @@ fn main() -> anyhow::Result<()> {
 
     let private_pem = fs::read(private_pem_path)?;
     let rsa = Rsa::private_key_from_pem(&private_pem)?;
-    
-    let n = base64::Engine::encode(&base64::engine::general_purpose::URL_SAFE_NO_PAD, rsa.n().to_vec());
-    let e = base64::Engine::encode(&base64::engine::general_purpose::URL_SAFE_NO_PAD, rsa.e().to_vec());
-    
+
+    let n = base64::Engine::encode(
+        &base64::engine::general_purpose::URL_SAFE_NO_PAD,
+        rsa.n().to_vec(),
+    );
+    let e = base64::Engine::encode(
+        &base64::engine::general_purpose::URL_SAFE_NO_PAD,
+        rsa.e().to_vec(),
+    );
+
     let kid = "default-kid";
     let jwk = Jwk {
         common: CommonParameters {
@@ -40,10 +46,10 @@ fn main() -> anyhow::Result<()> {
         }),
     };
     let jwks = JwkSet { keys: vec![jwk] };
-    
+
     let jwks_json = serde_json::to_string_pretty(&jwks)?;
     fs::write(jwks_path, jwks_json)?;
     println!("JWKS written to {}", jwks_path);
-    
+
     Ok(())
 }

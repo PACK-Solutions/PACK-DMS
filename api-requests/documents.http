@@ -1,7 +1,11 @@
-### PackDMS API Typical Usage Scenario
+### PackDMS API — Complete Workflow
+### This file demonstrates the full document lifecycle:
+### create → upload → activate → update → version → legal hold → retention →
+### archive → restore → soft delete → restore → purge, plus ACL and audit.
 
-### 1. Create a Document Shell
-# Documents are created as draft shells without content.
+### ═══════════════════════════════════════════════════════════════════
+### STEP 1 — Create a Document Shell (draft)
+### ═══════════════════════════════════════════════════════════════════
 POST http://{{host}}/documents
 Content-Type: application/json
 Authorization: Bearer {{auth_token}}
@@ -19,35 +23,44 @@ Authorization: Bearer {{auth_token}}
  client.global.set("document_id", response.body.id);
  %}
 
-### 2. Upload the first version of the document
-# This is a multipart request. The field name is 'file' as per the API.
+### ═══════════════════════════════════════════════════════════════════
+### STEP 2 — Upload the first version (v1)
+### ═══════════════════════════════════════════════════════════════════
 POST http://{{host}}/documents/{{document_id}}/versions
 Authorization: Bearer {{auth_token}}
 Content-Type: multipart/form-data; boundary=boundary
 
 --boundary
-Content-Disposition: form-data; name="file"; filename="contract.pdf"
+Content-Disposition: form-data; name="file"; filename="contract_v1.pdf"
 Content-Type: application/pdf
 
 < ./sample_contract.pdf
 --boundary--
 
 > {%
- client.global.set("version_id", response.body.id);
+ client.global.set("version_id_v1", response.body.id);
  %}
 
-### 3. Get document details
-# Verify the document has the current version and metadata.
+### ═══════════════════════════════════════════════════════════════════
+### STEP 3 — Get document details (should show draft + version v1)
+### ═══════════════════════════════════════════════════════════════════
 GET http://{{host}}/documents/{{document_id}}
 Authorization: Bearer {{auth_token}}
 
-### 4. Search for documents
-# Search by title or metadata (if supported by search query).
-GET http://{{host}}/documents?limit=10&offset=0
+### ═══════════════════════════════════════════════════════════════════
+### STEP 4 — Activate the document (draft → active)
+### ═══════════════════════════════════════════════════════════════════
+POST http://{{host}}/documents/{{document_id}}/status
+Content-Type: application/json
 Authorization: Bearer {{auth_token}}
 
-### 5. Patch document metadata
-# Update the metadata field for an existing document.
+{
+  "status": "active"
+}
+
+### ═══════════════════════════════════════════════════════════════════
+### STEP 5 — Patch document metadata
+### ═══════════════════════════════════════════════════════════════════
 PATCH http://{{host}}/documents/{{document_id}}
 Content-Type: application/json
 Authorization: Bearer {{auth_token}}
@@ -61,30 +74,174 @@ Authorization: Bearer {{auth_token}}
   }
 }
 
-### 6. List all versions of a document
+### ═══════════════════════════════════════════════════════════════════
+### STEP 6 — Upload a second version (v2) — supersedes v1
+### ═══════════════════════════════════════════════════════════════════
+POST http://{{host}}/documents/{{document_id}}/versions
+Authorization: Bearer {{auth_token}}
+Content-Type: multipart/form-data; boundary=boundary
+
+--boundary
+Content-Disposition: form-data; name="file"; filename="contract_v2_signed.pdf"
+Content-Type: application/pdf
+
+< ./sample_contract.pdf
+--boundary--
+
+> {%
+ client.global.set("version_id_v2", response.body.id);
+ %}
+
+### ═══════════════════════════════════════════════════════════════════
+### STEP 7 — List all versions (v1 superseded, v2 active)
+### ═══════════════════════════════════════════════════════════════════
 GET http://{{host}}/documents/{{document_id}}/versions
 Authorization: Bearer {{auth_token}}
 
-### 7. Download a specific version
-GET http://{{host}}/documents/{{document_id}}/versions/{{version_id}}/download
+### ═══════════════════════════════════════════════════════════════════
+### STEP 8 — Download version v1
+### ═══════════════════════════════════════════════════════════════════
+GET http://{{host}}/documents/{{document_id}}/versions/{{version_id_v1}}/download
 Authorization: Bearer {{auth_token}}
 
-### 8. Change document status
-# Move the document from 'draft' to 'active'.
+### ═══════════════════════════════════════════════════════════════════
+### STEP 9 — Download current version (v2)
+### ═══════════════════════════════════════════════════════════════════
+GET http://{{host}}/documents/{{document_id}}/versions/{{version_id_v2}}/download
+Authorization: Bearer {{auth_token}}
+
+### ═══════════════════════════════════════════════════════════════════
+### STEP 10 — List documents (no filter)
+### ═══════════════════════════════════════════════════════════════════
+GET http://{{host}}/documents?limit=10&offset=0
+Authorization: Bearer {{auth_token}}
+
+### ═══════════════════════════════════════════════════════════════════
+### STEP 10b — Search documents by metadata (single field)
+### ═══════════════════════════════════════════════════════════════════
+GET http://{{host}}/documents?q={"department":"HR"}&limit=10&offset=0
+Authorization: Bearer {{auth_token}}
+
+### ═══════════════════════════════════════════════════════════════════
+### STEP 10c — Search documents by metadata (multiple fields)
+### ═══════════════════════════════════════════════════════════════════
+GET http://{{host}}/documents?q={"department":"HR","signed":true}&limit=10&offset=0
+Authorization: Bearer {{auth_token}}
+
+### ═══════════════════════════════════════════════════════════════════
+### STEP 11 — Set Legal Hold on the document
+### ═══════════════════════════════════════════════════════════════════
+POST http://{{host}}/documents/{{document_id}}/legal-hold
+Content-Type: application/json
+Authorization: Bearer {{admin_token}}
+
+{
+  "hold": true,
+  "reason": "Ongoing litigation — case REF-2026-4521"
+}
+
+### ═══════════════════════════════════════════════════════════════════
+### STEP 12 — Verify legal hold is active on the document
+### ═══════════════════════════════════════════════════════════════════
+GET http://{{host}}/documents/{{document_id}}
+Authorization: Bearer {{auth_token}}
+
+### ═══════════════════════════════════════════════════════════════════
+### STEP 13 — Set Retention policy on the document
+### ═══════════════════════════════════════════════════════════════════
+POST http://{{host}}/documents/{{document_id}}/retention
+Content-Type: application/json
+Authorization: Bearer {{admin_token}}
+
+{
+  "retain_until": "2030-12-31T23:59:59Z"
+}
+
+### ═══════════════════════════════════════════════════════════════════
+### STEP 14 — Try to delete the document (should be blocked by legal hold)
+### ═══════════════════════════════════════════════════════════════════
 POST http://{{host}}/documents/{{document_id}}/status
 Content-Type: application/json
 Authorization: Bearer {{auth_token}}
 
 {
-  "status": "active"
+  "status": "deleted"
 }
 
-### 9. Get document ACL rules
+### ═══════════════════════════════════════════════════════════════════
+### STEP 15 — Remove Legal Hold
+### ═══════════════════════════════════════════════════════════════════
+POST http://{{host}}/documents/{{document_id}}/legal-hold
+Content-Type: application/json
+Authorization: Bearer {{admin_token}}
+
+{
+  "hold": false,
+  "reason": "Litigation resolved — case REF-2026-4521 closed"
+}
+
+### ═══════════════════════════════════════════════════════════════════
+### STEP 16 — Clear Retention (set to past date)
+### ═══════════════════════════════════════════════════════════════════
+POST http://{{host}}/documents/{{document_id}}/retention
+Content-Type: application/json
+Authorization: Bearer {{admin_token}}
+
+{
+  "retain_until": "2020-01-01T00:00:00Z"
+}
+
+### ═══════════════════════════════════════════════════════════════════
+### STEP 17 — Archive the document (active → archived)
+### ═══════════════════════════════════════════════════════════════════
+POST http://{{host}}/documents/{{document_id}}/status
+Content-Type: application/json
+Authorization: Bearer {{auth_token}}
+
+{
+  "status": "archived"
+}
+
+### ═══════════════════════════════════════════════════════════════════
+### STEP 18 — Restore from archive (archived → active)
+### ═══════════════════════════════════════════════════════════════════
+POST http://{{host}}/documents/{{document_id}}/restore
+Content-Type: application/json
+Authorization: Bearer {{auth_token}}
+
+### ═══════════════════════════════════════════════════════════════════
+### STEP 19 — Soft-delete the document (active → deleted)
+### ═══════════════════════════════════════════════════════════════════
+POST http://{{host}}/documents/{{document_id}}/status
+Content-Type: application/json
+Authorization: Bearer {{auth_token}}
+
+{
+  "status": "deleted"
+}
+
+### ═══════════════════════════════════════════════════════════════════
+### STEP 20 — Restore from soft-delete (deleted → active)
+### ═══════════════════════════════════════════════════════════════════
+POST http://{{host}}/documents/{{document_id}}/restore
+Content-Type: application/json
+Authorization: Bearer {{auth_token}}
+
+### ═══════════════════════════════════════════════════════════════════
+### STEP 21 — Delete a specific version (v1)
+### ═══════════════════════════════════════════════════════════════════
+DELETE http://{{host}}/documents/{{document_id}}/versions/{{version_id_v1}}
+Authorization: Bearer {{auth_token}}
+
+### ═══════════════════════════════════════════════════════════════════
+### STEP 22 — Get ACL rules for the document
+### ═══════════════════════════════════════════════════════════════════
 GET http://{{host}}/documents/{{document_id}}/acl
 Authorization: Bearer {{auth_token}}
 
-### 10. Update document ACL rules
-# Set permissions for specific users or groups.
+### ═══════════════════════════════════════════════════════════════════
+### STEP 23 — Update ACL rules
+### ═══════════════════════════════════════════════════════════════════
 PUT http://{{host}}/documents/{{document_id}}/acl
 Content-Type: application/json
 Authorization: Bearer {{auth_token}}
@@ -95,11 +252,30 @@ Authorization: Bearer {{auth_token}}
     "grantee_type": "user",
     "grantee_id": "00000000-0000-0000-0000-000000000001",
     "permission": "read",
-    "created_at": "2026-02-24T10:05:00Z"
+    "created_at": "2026-04-01T10:00:00Z"
+  },
+  {
+    "document_id": "{{document_id}}",
+    "grantee_type": "user",
+    "grantee_id": "00000000-0000-0000-0000-000000000002",
+    "permission": "write",
+    "created_at": "2026-04-01T10:00:00Z"
   }
 ]
 
-### 11. View system audit logs (Admin only)
-# Requires 'admin' role in JWT scopes.
-GET http://{{host}}/audit?limit=20
+### ═══════════════════════════════════════════════════════════════════
+### STEP 24 — View audit logs (Admin only)
+### ═══════════════════════════════════════════════════════════════════
+GET http://{{host}}/audit?limit=50
 Authorization: Bearer {{admin_token}}
+
+### ═══════════════════════════════════════════════════════════════════
+### STEP 25 — Final soft-delete before ending the workflow
+### ═══════════════════════════════════════════════════════════════════
+POST http://{{host}}/documents/{{document_id}}/status
+Content-Type: application/json
+Authorization: Bearer {{auth_token}}
+
+{
+  "status": "deleted"
+}

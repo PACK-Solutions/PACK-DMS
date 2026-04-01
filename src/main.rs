@@ -8,7 +8,7 @@ use tower_http::trace::TraceLayer;
 use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
 
 use packdms::infra::auth::{AppState, AuthConfig};
-use packdms::infra::storage::FileBlobStore;
+use packdms::infra::storage::{FileBlobStore, S3BlobStore};
 use packdms::{api, infra};
 use utoipa::OpenApi;
 use utoipa_scalar::{Scalar, Servable};
@@ -29,20 +29,31 @@ async fn main() -> anyhow::Result<()> {
     let database_url = std::env::var("DATABASE_URL").expect("DATABASE_URL is required");
     let issuer = std::env::var("JWT_ISSUER").expect("JWT_ISSUER is required");
     let jwks_url = std::env::var("JWKS_URL").expect("JWKS_URL is required");
-    let storage_path = std::env::var("STORAGE_PATH").unwrap_or_else(|_| "./data".into());
-
     tracing::info!("Connecting to database at: {}", database_url);
     let pool = PgPoolOptions::new()
         .max_connections(5)
         .connect(&database_url)
         .await?;
-    
+
     tracing::info!("Running migrations...");
     sqlx::migrate!().run(&pool).await?;
 
-    tracing::info!("Blob storage path: {}", storage_path);
-    let storage =
-        Arc::new(FileBlobStore::new(storage_path).await?) as Arc<dyn infra::storage::BlobStore>;
+    // Storage backend: S3-compatible (RustFS) by default, file-system fallback
+    let storage: Arc<dyn infra::storage::BlobStore> =
+        if let Ok(endpoint) = std::env::var("S3_ENDPOINT_URL") {
+            let bucket = std::env::var("S3_BUCKET").unwrap_or_else(|_| "packdms".into());
+            let region = std::env::var("S3_REGION").unwrap_or_else(|_| "us-east-1".into());
+            tracing::info!(
+                "Using S3-compatible storage at {} (bucket: {})",
+                endpoint,
+                bucket
+            );
+            Arc::new(S3BlobStore::new(&endpoint, &bucket, &region).await?)
+        } else {
+            let storage_path = std::env::var("STORAGE_PATH").unwrap_or_else(|_| "./data".into());
+            tracing::info!("Using file-system storage at: {}", storage_path);
+            Arc::new(FileBlobStore::new(storage_path).await?)
+        };
 
     // Fetch JWKS
     tracing::info!("Fetching JWKS from: {}", jwks_url);
@@ -77,6 +88,9 @@ async fn main() -> anyhow::Result<()> {
                 .allow_origin(Any)
                 .allow_headers(Any),
         );
+
+    // Spawn background workers (purge, orphan cleanup, reconciliation)
+    let _worker_handles = packdms::workers::spawn_all(pool.clone(), state.storage.clone());
 
     let addr: SocketAddr = std::env::var("BIND")
         .unwrap_or_else(|_| "0.0.0.0:8080".to_string())

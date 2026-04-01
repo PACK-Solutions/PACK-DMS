@@ -26,6 +26,8 @@ sha2 = "0.10"
 hex = "0.4"
 dotenvy = "0.15"
 async-trait = "0.1"
+aws-config = "1"
+aws-sdk-s3 = "1"
 
 [dev-dependencies]
 tower = "0.5"

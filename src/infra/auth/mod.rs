@@ -1,9 +1,9 @@
 use crate::infra::db::UserRepo;
 use axum::{
     extract::{FromRef, FromRequestParts},
-    http::{request::Parts, StatusCode},
+    http::{StatusCode, request::Parts},
 };
-use jsonwebtoken::{decode, Algorithm, DecodingKey, Validation};
+use jsonwebtoken::{Algorithm, DecodingKey, Validation, decode};
 use serde::{Deserialize, Serialize};
 use sqlx::PgPool;
 use std::sync::Arc;
@@ -45,13 +45,21 @@ impl AuthContext {
     }
 
     pub fn has_role(&self, role: &str) -> bool {
-        // Mapping scopes to roles for backward compatibility if needed, 
-        // but the issue says use scopes.
         self.scopes.iter().any(|s| s == role)
     }
-}
 
-pub struct RequireScope(pub &'static str);
+    /// Returns `Ok(())` if the user has the given scope, or a `FORBIDDEN` error.
+    pub fn require_scope(&self, scope: &str) -> Result<(), (axum::http::StatusCode, String)> {
+        if self.has_scope(scope) {
+            Ok(())
+        } else {
+            Err((
+                axum::http::StatusCode::FORBIDDEN,
+                format!("Missing {scope} scope"),
+            ))
+        }
+    }
+}
 
 #[derive(Debug)]
 pub struct JwtAuth(pub AuthContext);
@@ -63,7 +71,10 @@ where
 {
     type Rejection = (StatusCode, String);
 
-    fn from_request_parts(parts: &mut Parts, state: &S) -> impl std::future::Future<Output = Result<Self, Self::Rejection>> + Send {
+    fn from_request_parts(
+        parts: &mut Parts,
+        state: &S,
+    ) -> impl std::future::Future<Output = Result<Self, Self::Rejection>> + Send {
         use axum::extract::FromRef;
         let app: Arc<AppState> = Arc::from_ref(state);
         let header = parts
@@ -73,7 +84,10 @@ where
 
         async move {
             let Some(header) = header else {
-                return Err((StatusCode::UNAUTHORIZED, "Missing Authorization header".to_string()));
+                return Err((
+                    StatusCode::UNAUTHORIZED,
+                    "Missing Authorization header".to_string(),
+                ));
             };
             let auth_header = header
                 .to_str()
@@ -85,10 +99,15 @@ where
 
             let header = jsonwebtoken::decode_header(token)
                 .map_err(|_| (StatusCode::UNAUTHORIZED, "Invalid header".to_string()))?;
-            
-            let kid = header.kid.ok_or((StatusCode::UNAUTHORIZED, "Missing kid".to_string()))?;
-            let jwk = app.jwks.find(&kid).ok_or((StatusCode::UNAUTHORIZED, "Key not found".to_string()))?;
-            
+
+            let kid = header
+                .kid
+                .ok_or((StatusCode::UNAUTHORIZED, "Missing kid".to_string()))?;
+            let jwk = app
+                .jwks
+                .find(&kid)
+                .ok_or((StatusCode::UNAUTHORIZED, "Key not found".to_string()))?;
+
             let decoding_key = DecodingKey::from_jwk(jwk)
                 .map_err(|_| (StatusCode::UNAUTHORIZED, "Invalid JWK".to_string()))?;
 
@@ -96,23 +115,21 @@ where
             validation.set_issuer(&[&app.auth.issuer]);
             // You might want to set audience here if you have it in config
 
-            let token_data = decode::<Claims>(
-                token,
-                &decoding_key,
-                &validation,
-            )
-            .map_err(|e| (StatusCode::UNAUTHORIZED, format!("Invalid token: {}", e)))?;
+            let token_data = decode::<Claims>(token, &decoding_key, &validation)
+                .map_err(|e| (StatusCode::UNAUTHORIZED, format!("Invalid token: {}", e)))?;
 
             let uid = Uuid::parse_str(&token_data.claims.sub)
                 .map_err(|_| (StatusCode::UNAUTHORIZED, "Invalid sub".to_string()))?;
 
-            let scopes = token_data.claims.scope
+            let scopes = token_data
+                .claims
+                .scope
                 .unwrap_or_default()
                 .split_whitespace()
                 .map(|s| s.to_string())
                 .collect::<Vec<_>>();
 
-            // Ensure user exists in our DB or auto-provision? 
+            // Ensure user exists in our DB or auto-provision?
             // The original code checked UserRepo.
             if let Ok(Some(user)) = UserRepo::find_by_id(&app.pool, uid).await {
                 Ok(JwtAuth(AuthContext {
@@ -123,13 +140,16 @@ where
             } else {
                 // For now, if user not found, we might want to fail or auto-create.
                 // Original behavior was to fail.
-                Err((StatusCode::UNAUTHORIZED, "User not found in local database".to_string()))
+                Err((
+                    StatusCode::UNAUTHORIZED,
+                    "User not found in local database".to_string(),
+                ))
             }
         }
     }
 }
 
-use jsonwebtoken::{encode, EncodingKey, Header};
+use jsonwebtoken::{EncodingKey, Header, encode};
 
 pub fn issue_test_jwt(
     private_key_pem: &str,
@@ -153,7 +173,7 @@ pub fn issue_test_jwt(
     };
     let mut header = Header::new(Algorithm::RS256);
     header.kid = Some(kid.to_string());
-    
+
     let token = encode(
         &header,
         &claims,
