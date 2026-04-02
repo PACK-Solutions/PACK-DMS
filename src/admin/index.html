@@ -210,12 +210,12 @@ function toggleTokenVisibility() {
 function showTab(name) {
   document.querySelectorAll('.tab-panel').forEach(p => p.classList.add('hidden'));
   document.querySelectorAll('.tab-btn').forEach(b => {
-    b.classList.remove('bg-indigo-800');
+    b.classList.remove('bg-indigo-800', 'text-white');
     b.classList.add('text-indigo-200');
   });
   document.getElementById('panel-' + name).classList.remove('hidden');
   const btn = document.getElementById('tab-' + name);
-  btn.classList.add('bg-indigo-800');
+  btn.classList.add('bg-indigo-800', 'text-white');
   btn.classList.remove('text-indigo-200');
   if (name === 'audit') loadAudit();
 }
