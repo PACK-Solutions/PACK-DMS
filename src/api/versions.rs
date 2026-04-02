@@ -13,7 +13,7 @@ use sha2::{Digest, Sha256};
 use std::sync::Arc;
 use uuid::Uuid;
 
-use super::error::internal;
+use super::error::{ProblemDetails, bad_request, internal, not_found};
 use super::types::VersionResponse;
 
 /// Upload a new version of the document content.
@@ -43,19 +43,16 @@ pub async fn upload_version(
     JwtAuth(auth): JwtAuth,
     Path(id): Path<Uuid>,
     mut multipart: Multipart,
-) -> Result<(StatusCode, Json<VersionResponse>), (StatusCode, String)> {
+) -> Result<(StatusCode, Json<VersionResponse>), ProblemDetails> {
     auth.require_scope("document:write")?;
     let mut doc = DocumentRepo::find_by_id(&state.pool, id)
         .await
         .map_err(internal)?
-        .ok_or((StatusCode::NOT_FOUND, "not found".into()))?;
+        .ok_or_else(|| not_found("document not found"))?;
 
     // Only draft or active documents accept new versions
     if doc.status != doc_status::DRAFT && doc.status != doc_status::ACTIVE {
-        return Err((
-            StatusCode::BAD_REQUEST,
-            "document status does not allow uploads".into(),
-        ));
+        return Err(bad_request("document status does not allow uploads"));
     }
 
     let mut data = None;
@@ -75,7 +72,7 @@ pub async fn upload_version(
         }
     }
 
-    let data = data.ok_or((StatusCode::BAD_REQUEST, "missing file part".into()))?;
+    let data = data.ok_or_else(|| bad_request("missing file part"))?;
 
     // Compute SHA-256 hash
     let mut hasher = Sha256::new();
@@ -197,7 +194,7 @@ pub async fn list_versions(
     State(state): State<Arc<AppState>>,
     JwtAuth(auth): JwtAuth,
     Path(id): Path<Uuid>,
-) -> Result<Json<Vec<DocumentVersion>>, (StatusCode, String)> {
+) -> Result<Json<Vec<DocumentVersion>>, ProblemDetails> {
     auth.require_scope("document:read")?;
     let versions = VersionRepo::list_by_document_id(&state.pool, id)
         .await
@@ -225,17 +222,17 @@ pub async fn download_version(
     State(state): State<Arc<AppState>>,
     JwtAuth(auth): JwtAuth,
     Path((id, vid)): Path<(Uuid, Uuid)>,
-) -> Result<(StatusCode, Vec<u8>), (StatusCode, String)> {
+) -> Result<(StatusCode, Vec<u8>), ProblemDetails> {
     auth.require_scope("document:read")?;
     let v = VersionRepo::find_by_id(&state.pool, vid)
         .await
         .map_err(internal)?
-        .ok_or((StatusCode::NOT_FOUND, "not found".into()))?;
+        .ok_or_else(|| not_found("version not found"))?;
     if v.document_id != id {
-        return Err((StatusCode::NOT_FOUND, "not found".into()));
+        return Err(not_found("version not found"));
     }
     if v.status == version_status::DELETED {
-        return Err((StatusCode::NOT_FOUND, "version deleted".into()));
+        return Err(not_found("version deleted"));
     }
     let bytes = state.storage.get(&v.storage_key).await.map_err(internal)?;
     Ok((StatusCode::OK, bytes.to_vec()))
@@ -263,29 +260,26 @@ pub async fn delete_version(
     State(state): State<Arc<AppState>>,
     JwtAuth(auth): JwtAuth,
     Path((id, vid)): Path<(Uuid, Uuid)>,
-) -> Result<StatusCode, (StatusCode, String)> {
+) -> Result<StatusCode, ProblemDetails> {
     auth.require_scope("document:write")?;
     let doc = DocumentRepo::find_by_id(&state.pool, id)
         .await
         .map_err(internal)?
-        .ok_or((StatusCode::NOT_FOUND, "document not found".into()))?;
+        .ok_or_else(|| not_found("document not found"))?;
 
     if doc.is_protected() {
-        return Err((
-            StatusCode::BAD_REQUEST,
-            "document is under legal hold or retention".into(),
-        ));
+        return Err(bad_request("document is under legal hold or retention"));
     }
 
     let v = VersionRepo::find_by_id(&state.pool, vid)
         .await
         .map_err(internal)?
-        .ok_or((StatusCode::NOT_FOUND, "version not found".into()))?;
+        .ok_or_else(|| not_found("version not found"))?;
     if v.document_id != id {
-        return Err((StatusCode::NOT_FOUND, "not found".into()));
+        return Err(not_found("version not found"));
     }
     if v.status == version_status::DELETED {
-        return Err((StatusCode::BAD_REQUEST, "already deleted".into()));
+        return Err(bad_request("already deleted"));
     }
 
     let mut tx = state.pool.begin().await.map_err(internal)?;

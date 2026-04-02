@@ -1,4 +1,6 @@
-use crate::domain::models::{AuditLog, Blob, Document, DocumentAcl, DocumentVersion, JobOutbox, User};
+use crate::domain::models::{
+    AuditLog, Blob, Document, DocumentAcl, DocumentVersion, JobOutbox, User,
+};
 use sqlx::{PgPool, Postgres, Transaction};
 use uuid::Uuid;
 
@@ -212,12 +214,10 @@ impl BlobRepo {
 
     /// Decrement ref_count and mark as pending_deletion if it reaches 0.
     pub async fn decrement_ref(tx: &mut Transaction<'_, Postgres>, id: Uuid) -> sqlx::Result<()> {
-        sqlx::query(
-            "UPDATE blobs SET ref_count = GREATEST(ref_count - 1, 0) WHERE id = $1"
-        )
-        .bind(id)
-        .execute(&mut **tx)
-        .await?;
+        sqlx::query("UPDATE blobs SET ref_count = GREATEST(ref_count - 1, 0) WHERE id = $1")
+            .bind(id)
+            .execute(&mut **tx)
+            .await?;
         // Mark for deletion if no more references
         sqlx::query(
             "UPDATE blobs SET status = 'pending_deletion' WHERE id = $1 AND ref_count = 0 AND status = 'active'"
@@ -308,10 +308,12 @@ impl JobRepo {
 
     /// Mark a job as completed.
     pub async fn complete(pool: &PgPool, id: Uuid) -> sqlx::Result<()> {
-        sqlx::query("UPDATE job_outbox SET status = 'completed', completed_at = NOW() WHERE id = $1")
-            .bind(id)
-            .execute(pool)
-            .await?;
+        sqlx::query(
+            "UPDATE job_outbox SET status = 'completed', completed_at = NOW() WHERE id = $1",
+        )
+        .bind(id)
+        .execute(pool)
+        .await?;
         Ok(())
     }
 

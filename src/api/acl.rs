@@ -11,7 +11,7 @@ use axum::{
 use std::sync::Arc;
 use uuid::Uuid;
 
-use super::error::internal;
+use super::error::{ProblemDetails, forbidden, internal};
 
 /// Get the Access Control List for a document.
 #[utoipa::path(
@@ -32,7 +32,7 @@ pub async fn get_acl(
     State(state): State<Arc<AppState>>,
     JwtAuth(auth): JwtAuth,
     Path(id): Path<Uuid>,
-) -> Result<Json<Vec<DocumentAcl>>, (StatusCode, String)> {
+) -> Result<Json<Vec<DocumentAcl>>, ProblemDetails> {
     auth.require_scope("document:read")?;
     let rules = AclRepo::list_by_document_id(&state.pool, id)
         .await
@@ -64,10 +64,10 @@ pub async fn put_acl(
     JwtAuth(auth): JwtAuth,
     Path(id): Path<Uuid>,
     Json(rules): Json<Vec<DocumentAcl>>,
-) -> Result<StatusCode, (StatusCode, String)> {
+) -> Result<StatusCode, ProblemDetails> {
     auth.require_scope("document:write")?;
     if !auth.has_role("admin") {
-        return Err((StatusCode::FORBIDDEN, "forbidden".into()));
+        return Err(forbidden("forbidden"));
     }
     let mut tx = state.pool.begin().await.map_err(internal)?;
     AclRepo::delete_by_document_id(&mut tx, id)
@@ -78,8 +78,7 @@ pub async fn put_acl(
         r.document_id = id;
         AclRepo::create(&mut tx, &r).await.map_err(internal)?;
     }
-    let audit = AuditLog::builder(auth.user_id, "document.acl", "document", id)
-        .build();
+    let audit = AuditLog::builder(auth.user_id, "document.acl", "document", id).build();
     AuditRepo::create(&mut tx, &audit).await.map_err(internal)?;
     tx.commit().await.map_err(internal)?;
     Ok(StatusCode::NO_CONTENT)

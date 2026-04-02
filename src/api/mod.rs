@@ -11,6 +11,7 @@ use axum::{
     Router,
     routing::{delete, get, post},
 };
+use error::ProblemDetails;
 use std::sync::Arc;
 use utoipa::OpenApi;
 
@@ -53,7 +54,8 @@ pub use types::{
             LegalHoldRequest,
             RetentionRequest,
             PatchDocumentRequest,
-            StatusChangeRequest
+            StatusChangeRequest,
+            ProblemDetails
         )
     ),
     modifiers(&SecurityAddon),
@@ -91,18 +93,12 @@ pub fn router(state: Arc<AppState>) -> Router {
             get(documents::get_document).patch(documents::patch_document),
         )
         .route("/documents/{id}/status", post(documents::change_status))
-        .route(
-            "/documents/{id}/restore",
-            post(documents::restore_document),
-        )
+        .route("/documents/{id}/restore", post(documents::restore_document))
         .route(
             "/documents/{id}/legal-hold",
             post(documents::set_legal_hold),
         )
-        .route(
-            "/documents/{id}/retention",
-            post(documents::set_retention),
-        )
+        .route("/documents/{id}/retention", post(documents::set_retention))
         .route(
             "/documents/{id}/versions",
             post(versions::upload_version).get(versions::list_versions),
@@ -115,10 +111,7 @@ pub fn router(state: Arc<AppState>) -> Router {
             "/documents/{id}/versions/{vid}",
             delete(versions::delete_version),
         )
-        .route(
-            "/documents/{id}/acl",
-            get(acl::get_acl).put(acl::put_acl),
-        )
+        .route("/documents/{id}/acl", get(acl::get_acl).put(acl::put_acl))
         .route("/audit", get(audit::list_audit))
         .with_state(state)
 }

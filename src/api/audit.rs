@@ -6,11 +6,10 @@ use crate::infra::{
 use axum::{
     Json,
     extract::{Query, State},
-    http::StatusCode,
 };
 use std::sync::Arc;
 
-use super::error::internal;
+use super::error::{ProblemDetails, forbidden, internal};
 use super::types::SearchQuery;
 
 /// List system-wide audit logs.
@@ -34,9 +33,9 @@ pub async fn list_audit(
     State(state): State<Arc<AppState>>,
     JwtAuth(auth): JwtAuth,
     Query(p): Query<SearchQuery>,
-) -> Result<Json<Vec<AuditLog>>, (StatusCode, String)> {
+) -> Result<Json<Vec<AuditLog>>, ProblemDetails> {
     if !auth.has_role("admin") {
-        return Err((StatusCode::FORBIDDEN, "Missing admin role".into()));
+        return Err(forbidden("Missing admin role"));
     }
     let logs = AuditRepo::list_all(&state.pool, p.limit.unwrap_or(100), p.offset.unwrap_or(0))
         .await

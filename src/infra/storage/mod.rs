@@ -58,10 +58,7 @@ impl S3BlobStore {
 #[async_trait]
 impl BlobStore for S3BlobStore {
     async fn put(&self, key: &str, bytes: Bytes, content_type: Option<&str>) -> anyhow::Result<()> {
-        let mut req = self.client
-            .put_object()
-            .bucket(&self.bucket)
-            .key(key);
+        let mut req = self.client.put_object().bucket(&self.bucket).key(key);
         if let Some(ct) = content_type {
             req = req.content_type(ct);
         }
@@ -153,7 +150,12 @@ impl FileBlobStore {
 
 #[async_trait]
 impl BlobStore for FileBlobStore {
-    async fn put(&self, key: &str, bytes: Bytes, _content_type: Option<&str>) -> anyhow::Result<()> {
+    async fn put(
+        &self,
+        key: &str,
+        bytes: Bytes,
+        _content_type: Option<&str>,
+    ) -> anyhow::Result<()> {
         let path = self.root.join(key);
         if let Some(parent) = path.parent() {
             fs::create_dir_all(parent).await?;
@@ -216,7 +218,12 @@ impl MemoryBlobStore {
 
 #[async_trait]
 impl BlobStore for MemoryBlobStore {
-    async fn put(&self, key: &str, bytes: Bytes, _content_type: Option<&str>) -> anyhow::Result<()> {
+    async fn put(
+        &self,
+        key: &str,
+        bytes: Bytes,
+        _content_type: Option<&str>,
+    ) -> anyhow::Result<()> {
         let mut storage = self.storage.write().await;
         storage.insert(key.to_string(), bytes);
         Ok(())

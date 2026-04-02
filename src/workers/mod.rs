@@ -90,7 +90,10 @@ async fn orphan_cleanup_loop(pool: PgPool, storage: Arc<dyn BlobStore>) {
 
 /// Clean up blobs that exist in storage but have no DB reference (orphans).
 /// Also processes outbox jobs of type 'cleanup_orphans'.
-pub async fn run_orphan_cleanup(pool: &PgPool, _storage: &Arc<dyn BlobStore>) -> anyhow::Result<()> {
+pub async fn run_orphan_cleanup(
+    pool: &PgPool,
+    _storage: &Arc<dyn BlobStore>,
+) -> anyhow::Result<()> {
     // Process any pending cleanup_orphans jobs
     while let Some(job) = JobRepo::claim_next(pool, "cleanup_orphans").await? {
         tracing::info!(job_id = %job.id, "processing orphan cleanup job");

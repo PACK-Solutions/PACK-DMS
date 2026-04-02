@@ -12,7 +12,7 @@ use chrono::Utc;
 use std::sync::Arc;
 use uuid::Uuid;
 
-use super::error::internal;
+use super::error::{ProblemDetails, bad_request, forbidden, internal, not_found};
 use super::types::{
     CreateDocumentRequest, DocumentResponse, LegalHoldRequest, PatchDocumentRequest,
     RetentionRequest, SearchQuery, StatusChangeRequest,
@@ -32,7 +32,7 @@ pub async fn create_document(
     State(state): State<Arc<AppState>>,
     JwtAuth(auth): JwtAuth,
     Json(req): Json<CreateDocumentRequest>,
-) -> Result<(StatusCode, Json<DocumentResponse>), (StatusCode, String)> {
+) -> Result<(StatusCode, Json<DocumentResponse>), ProblemDetails> {
     auth.require_scope("document:write")?;
     let mut tx = state.pool.begin().await.map_err(internal)?;
     let now = Utc::now();
@@ -54,8 +54,7 @@ pub async fn create_document(
     DocumentRepo::create(&mut tx, &doc)
         .await
         .map_err(internal)?;
-    let audit = AuditLog::builder(auth.user_id, "document.create", "document", doc.id)
-        .build();
+    let audit = AuditLog::builder(auth.user_id, "document.create", "document", doc.id).build();
     AuditRepo::create(&mut tx, &audit).await.map_err(internal)?;
     tx.commit().await.map_err(internal)?;
     Ok((StatusCode::CREATED, Json(doc.into())))
@@ -80,12 +79,12 @@ pub async fn get_document(
     State(state): State<Arc<AppState>>,
     JwtAuth(auth): JwtAuth,
     Path(id): Path<Uuid>,
-) -> Result<Json<DocumentResponse>, (StatusCode, String)> {
+) -> Result<Json<DocumentResponse>, ProblemDetails> {
     auth.require_scope("document:read")?;
     let doc = DocumentRepo::find_by_id(&state.pool, id)
         .await
         .map_err(internal)?
-        .ok_or((StatusCode::NOT_FOUND, "not found".into()))?;
+        .ok_or_else(|| not_found("document not found"))?;
     Ok(Json(doc.into()))
 }
 
@@ -113,17 +112,13 @@ pub async fn search_documents(
     State(state): State<Arc<AppState>>,
     JwtAuth(auth): JwtAuth,
     Query(p): Query<SearchQuery>,
-) -> Result<Json<Vec<DocumentResponse>>, (StatusCode, String)> {
+) -> Result<Json<Vec<DocumentResponse>>, ProblemDetails> {
     auth.require_scope("document:read")?;
     let limit = p.limit.unwrap_or(50);
     let offset = p.offset.unwrap_or(0);
     let rows: Vec<Document> = if let Some(q) = p.q {
-        let pattern = serde_json::from_str::<serde_json::Value>(&q).map_err(|e| {
-            (
-                StatusCode::BAD_REQUEST,
-                format!("invalid JSON in 'q' parameter: {e}"),
-            )
-        })?;
+        let pattern = serde_json::from_str::<serde_json::Value>(&q)
+            .map_err(|e| bad_request(format!("invalid JSON in 'q' parameter: {e}")))?;
         sqlx::query_as::<_, Document>("SELECT id, title, status, owner_id, current_version_id, legal_hold, retention_until, metadata, created_at, updated_at, deleted_at, deleted_by, archived_at FROM documents WHERE metadata @> $1::jsonb AND deleted_at IS NULL ORDER BY updated_at DESC LIMIT $2 OFFSET $3")
             .bind(pattern).bind(limit).bind(offset)
             .fetch_all(&state.pool).await.map_err(internal)?
@@ -159,14 +154,14 @@ pub async fn patch_document(
     JwtAuth(auth): JwtAuth,
     Path(id): Path<Uuid>,
     Json(req): Json<PatchDocumentRequest>,
-) -> Result<Json<DocumentResponse>, (StatusCode, String)> {
+) -> Result<Json<DocumentResponse>, ProblemDetails> {
     auth.require_scope("document:write")?;
     let mut doc = DocumentRepo::find_by_id(&state.pool, id)
         .await
         .map_err(internal)?
-        .ok_or((StatusCode::NOT_FOUND, "not found".into()))?;
+        .ok_or_else(|| not_found("document not found"))?;
     if doc.owner_id != auth.user_id && !auth.has_role("admin") {
-        return Err((StatusCode::FORBIDDEN, "forbidden".into()));
+        return Err(forbidden("forbidden"));
     }
     if let Some(t) = req.title {
         doc.title = t;
@@ -179,8 +174,7 @@ pub async fn patch_document(
     DocumentRepo::update(&mut tx, &doc)
         .await
         .map_err(internal)?;
-    let audit = AuditLog::builder(auth.user_id, "document.update", "document", id)
-        .build();
+    let audit = AuditLog::builder(auth.user_id, "document.update", "document", id).build();
     AuditRepo::create(&mut tx, &audit).await.map_err(internal)?;
     tx.commit().await.map_err(internal)?;
     Ok(Json(doc.into()))
@@ -217,12 +211,12 @@ pub async fn change_status(
     JwtAuth(auth): JwtAuth,
     Path(id): Path<Uuid>,
     Json(req): Json<StatusChangeRequest>,
-) -> Result<Json<DocumentResponse>, (StatusCode, String)> {
+) -> Result<Json<DocumentResponse>, ProblemDetails> {
     auth.require_scope("document:write")?;
     let mut doc = DocumentRepo::find_by_id(&state.pool, id)
         .await
         .map_err(internal)?
-        .ok_or((StatusCode::NOT_FOUND, "not found".into()))?;
+        .ok_or_else(|| not_found("document not found"))?;
 
     // Validate transition
     let valid = matches!(
@@ -235,18 +229,17 @@ pub async fn change_status(
             | ("archived", "deleted")
     );
     if !valid {
-        return Err((StatusCode::BAD_REQUEST, "invalid transition".into()));
+        return Err(bad_request("invalid transition"));
     }
 
     if !auth.has_role("admin") && doc.owner_id != auth.user_id {
-        return Err((StatusCode::FORBIDDEN, "forbidden".into()));
+        return Err(forbidden("forbidden"));
     }
 
     // Protect against deletion if under legal hold or retention
     if req.status == doc_status::DELETED && doc.is_protected() {
-        return Err((
-            StatusCode::BAD_REQUEST,
-            "cannot delete: document is under legal hold or retention".into(),
+        return Err(bad_request(
+            "cannot delete: document is under legal hold or retention",
         ));
     }
 
@@ -301,19 +294,19 @@ pub async fn restore_document(
     State(state): State<Arc<AppState>>,
     JwtAuth(auth): JwtAuth,
     Path(id): Path<Uuid>,
-) -> Result<Json<DocumentResponse>, (StatusCode, String)> {
+) -> Result<Json<DocumentResponse>, ProblemDetails> {
     auth.require_scope("document:write")?;
     let mut doc = DocumentRepo::find_by_id(&state.pool, id)
         .await
         .map_err(internal)?
-        .ok_or((StatusCode::NOT_FOUND, "not found".into()))?;
+        .ok_or_else(|| not_found("document not found"))?;
 
     if doc.status != doc_status::DELETED {
-        return Err((StatusCode::BAD_REQUEST, "document is not deleted".into()));
+        return Err(bad_request("document is not deleted"));
     }
 
     if !auth.has_role("admin") && doc.owner_id != auth.user_id {
-        return Err((StatusCode::FORBIDDEN, "forbidden".into()));
+        return Err(forbidden("forbidden"));
     }
 
     let now = Utc::now();
@@ -326,8 +319,7 @@ pub async fn restore_document(
     DocumentRepo::update(&mut tx, &doc)
         .await
         .map_err(internal)?;
-    let audit = AuditLog::builder(auth.user_id, "document.restore", "document", id)
-        .build();
+    let audit = AuditLog::builder(auth.user_id, "document.restore", "document", id).build();
     AuditRepo::create(&mut tx, &audit).await.map_err(internal)?;
     tx.commit().await.map_err(internal)?;
     Ok(Json(doc.into()))
@@ -355,14 +347,14 @@ pub async fn set_legal_hold(
     JwtAuth(auth): JwtAuth,
     Path(id): Path<Uuid>,
     Json(req): Json<LegalHoldRequest>,
-) -> Result<Json<DocumentResponse>, (StatusCode, String)> {
+) -> Result<Json<DocumentResponse>, ProblemDetails> {
     if !auth.has_role("admin") {
-        return Err((StatusCode::FORBIDDEN, "requires admin role".into()));
+        return Err(forbidden("requires admin role"));
     }
     let mut doc = DocumentRepo::find_by_id(&state.pool, id)
         .await
         .map_err(internal)?
-        .ok_or((StatusCode::NOT_FOUND, "not found".into()))?;
+        .ok_or_else(|| not_found("document not found"))?;
 
     doc.legal_hold = req.hold;
     doc.updated_at = Utc::now();
@@ -401,14 +393,14 @@ pub async fn set_retention(
     JwtAuth(auth): JwtAuth,
     Path(id): Path<Uuid>,
     Json(req): Json<RetentionRequest>,
-) -> Result<Json<DocumentResponse>, (StatusCode, String)> {
+) -> Result<Json<DocumentResponse>, ProblemDetails> {
     if !auth.has_role("admin") {
-        return Err((StatusCode::FORBIDDEN, "requires admin role".into()));
+        return Err(forbidden("requires admin role"));
     }
     let mut doc = DocumentRepo::find_by_id(&state.pool, id)
         .await
         .map_err(internal)?
-        .ok_or((StatusCode::NOT_FOUND, "not found".into()))?;
+        .ok_or_else(|| not_found("document not found"))?;
 
     doc.retention_until = req.retention_until;
     doc.updated_at = Utc::now();
