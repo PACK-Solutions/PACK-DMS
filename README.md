@@ -11,6 +11,7 @@ PackDMS is a secure Document Management System (DMS) API built with Rust. It sup
 - **Search**: Search documents by metadata and other criteria.
 - **Audit Logging**: Track system-wide actions for compliance.
 - **Documentation**: Built-in OpenAPI documentation with Scalar.
+- **Admin Frontend**: Built-in administration UI for managing documents, versions, ACLs, and audit logs.
 - **S3-compatible Storage**: Binary content stored in RustFS (or any S3-compatible backend) with support for Object Lock / WORM, retention, versioning, encryption, and replication.
 
 ## Prerequisites
@@ -82,6 +83,22 @@ The API will be available at `http://localhost:8080`.
 Once the server is running, you can access the interactive API documentation at:
 
 - **Scalar**: [http://localhost:8080/docs](http://localhost:8080/docs)
+
+## Administration Frontend
+
+PackDMS includes a built-in administration UI available at:
+
+- **Admin**: [http://localhost:8080/admin](http://localhost:8080/admin)
+
+The admin frontend provides a complete interface for all API operations:
+
+- Create, search, and manage documents (metadata, status transitions, legal hold, retention).
+- Upload, download, preview, and delete document versions.
+- Configure per-document access control lists (ACL).
+- View system-wide audit logs.
+- Preview documents in known formats (PDF, images, text, video, audio) directly in the browser.
+
+It is built with HTMX and Tailwind CSS — no JavaScript build step required. The HTML is embedded at compile time via `include_str!`.
 
 ## API Endpoints
 

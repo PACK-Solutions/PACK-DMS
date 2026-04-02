@@ -76,7 +76,10 @@ async fn main() -> anyhow::Result<()> {
     let api = api::router(state.clone());
     let openapi = api::ApiDoc::openapi();
 
+    let admin = packdms::admin::router();
+
     let app = Router::new()
+        .merge(admin)
         .merge(api)
         .merge(Scalar::with_url("/docs", openapi))
         .layer(TraceLayer::new_for_http())
@@ -97,6 +100,7 @@ async fn main() -> anyhow::Result<()> {
         .parse()?;
     tracing::info!("Server running at: http://{}", addr);
     tracing::info!("Swagger UI: http://{}/docs", addr);
+    tracing::info!("Admin UI: http://{}/admin", addr);
     tracing::info!("Swagger/OpenAPI JSON: http://{}/docs/openapi.json", addr);
     axum::serve(tokio::net::TcpListener::bind(addr).await?, app).await?;
     Ok(())

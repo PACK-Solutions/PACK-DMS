@@ -222,7 +222,7 @@ pub async fn download_version(
     State(state): State<Arc<AppState>>,
     JwtAuth(auth): JwtAuth,
     Path((id, vid)): Path<(Uuid, Uuid)>,
-) -> Result<(StatusCode, Vec<u8>), ProblemDetails> {
+) -> Result<(StatusCode, [(axum::http::header::HeaderName, String); 2], Vec<u8>), ProblemDetails> {
     auth.require_scope("document:read")?;
     let v = VersionRepo::find_by_id(&state.pool, vid)
         .await
@@ -235,7 +235,17 @@ pub async fn download_version(
         return Err(not_found("version deleted"));
     }
     let bytes = state.storage.get(&v.storage_key).await.map_err(internal)?;
-    Ok((StatusCode::OK, bytes.to_vec()))
+    let headers = [
+        (
+            axum::http::header::CONTENT_TYPE,
+            v.mime_type.clone(),
+        ),
+        (
+            axum::http::header::CONTENT_DISPOSITION,
+            format!("inline; filename=\"{}\"", v.original_filename),
+        ),
+    ];
+    Ok((StatusCode::OK, headers, bytes.to_vec()))
 }
 
 /// Soft-delete a specific version.
