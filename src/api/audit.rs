@@ -20,7 +20,7 @@ use super::types::SearchQuery;
     path = "/audit",
     responses(
         (status = 200, description = "List of audit logs", body = [AuditLog]),
-        (status = 401, description = "Unauthorized")
+        (status = 401, description = "Unauthorized", body = ProblemDetails)
     ),
     params(
         ("limit" = Option<i64>, Query, description = "Page size"),

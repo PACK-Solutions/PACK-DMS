@@ -19,8 +19,8 @@ use super::error::{ProblemDetails, forbidden, internal};
     path = "/documents/{id}/acl",
     responses(
         (status = 200, description = "ACL rules list", body = [DocumentAcl]),
-        (status = 401, description = "Unauthorized"),
-        (status = 404, description = "Document not found")
+        (status = 401, description = "Unauthorized", body = ProblemDetails),
+        (status = 404, description = "Not found", body = ProblemDetails)
     ),
     params(
         ("id" = Uuid, Path, description = "Document identifier")
@@ -49,9 +49,9 @@ pub async fn get_acl(
     request_body = [DocumentAcl],
     responses(
         (status = 204, description = "ACL updated successfully"),
-        (status = 401, description = "Unauthorized"),
+        (status = 401, description = "Unauthorized", body = ProblemDetails),
         (status = 403, description = "Forbidden (requires admin role)"),
-        (status = 404, description = "Document not found")
+        (status = 404, description = "Not found", body = ProblemDetails)
     ),
     params(
         ("id" = Uuid, Path, description = "Document identifier")

@@ -27,10 +27,10 @@ use super::types::VersionResponse;
     request_body(content = super::types::UploadVersionRequest, content_type = "multipart/form-data"),
     responses(
         (status = 201, description = "Version uploaded successfully", body = VersionResponse),
-        (status = 400, description = "Bad request (e.g., missing file)"),
-        (status = 401, description = "Unauthorized"),
-        (status = 403, description = "Forbidden (missing scope)"),
-        (status = 404, description = "Document not found")
+        (status = 400, description = "Bad request", body = ProblemDetails),
+        (status = 401, description = "Unauthorized", body = ProblemDetails),
+        (status = 403, description = "Forbidden", body = ProblemDetails),
+        (status = 404, description = "Not found", body = ProblemDetails)
     ),
     params(
         ("id" = Uuid, Path, description = "Document identifier")
@@ -181,8 +181,8 @@ pub async fn upload_version(
     path = "/documents/{id}/versions",
     responses(
         (status = 200, description = "List of versions", body = [DocumentVersion]),
-        (status = 401, description = "Unauthorized"),
-        (status = 404, description = "Document not found")
+        (status = 401, description = "Unauthorized", body = ProblemDetails),
+        (status = 404, description = "Not found", body = ProblemDetails)
     ),
     params(
         ("id" = Uuid, Path, description = "Document identifier")
@@ -208,8 +208,8 @@ pub async fn list_versions(
     path = "/documents/{id}/versions/{vid}/download",
     responses(
         (status = 200, description = "File content", body = Vec<u8>),
-        (status = 401, description = "Unauthorized"),
-        (status = 404, description = "Document or version not found")
+        (status = 401, description = "Unauthorized", body = ProblemDetails),
+        (status = 404, description = "Not found", body = ProblemDetails)
     ),
     params(
         ("id" = Uuid, Path, description = "Document identifier"),
@@ -254,10 +254,10 @@ pub async fn download_version(
     path = "/documents/{id}/versions/{vid}",
     responses(
         (status = 204, description = "Version soft-deleted"),
-        (status = 400, description = "Cannot delete (protected)"),
-        (status = 401, description = "Unauthorized"),
-        (status = 403, description = "Forbidden"),
-        (status = 404, description = "Not found")
+        (status = 400, description = "Bad request", body = ProblemDetails),
+        (status = 401, description = "Unauthorized", body = ProblemDetails),
+        (status = 403, description = "Forbidden", body = ProblemDetails),
+        (status = 404, description = "Not found", body = ProblemDetails)
     ),
     params(
         ("id" = Uuid, Path, description = "Document identifier"),

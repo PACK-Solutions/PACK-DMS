@@ -58,14 +58,26 @@ pub use types::{
             ProblemDetails
         )
     ),
-    modifiers(&SecurityAddon),
+    modifiers(&SecurityAddon, &DescriptionAddon),
+    tags(
+        (name = "Documents", description = "Document lifecycle management — create, retrieve, search, update metadata, transition status, soft-delete, restore, and configure legal hold and retention policies."),
+        (name = "Versions", description = "Binary content versioning — upload new versions (multipart), list version history, download a specific version, and soft-delete versions."),
+        (name = "ACL", description = "Access Control Lists — view and replace per-document permission entries that grant read, write, or admin access to specific users."),
+        (name = "Audit", description = "Audit trail — query the immutable log of every action performed on documents, versions, and ACLs.")
+    ),
     info(
         title = "PackDMS API",
-        version = "0.2.0",
-        description = "A secure Document Management System API supporting versioning, lifecycle management, soft delete, legal hold, retention, audit logging, and blob-level storage."
+        version = "0.2.0"
     )
 )]
 pub struct ApiDoc;
+
+pub struct DescriptionAddon;
+impl utoipa::Modify for DescriptionAddon {
+    fn modify(&self, openapi: &mut utoipa::openapi::OpenApi) {
+        openapi.info.description = Some(include_str!("api-description.md").to_string());
+    }
+}
 
 pub struct SecurityAddon;
 impl utoipa::Modify for SecurityAddon {

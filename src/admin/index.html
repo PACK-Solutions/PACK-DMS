@@ -176,500 +176,6 @@
   </div>
 </div>
 
-<!-- Toast -->
-<div id="toast" class="hidden fixed bottom-4 right-4 z-50 rounded-lg px-4 py-3 text-sm font-medium text-white shadow-lg"></div>
-
-<script>
-// ── State ──────────────────────────────────────────────────────────
-let currentDocId = null;
-
-function getToken() { return document.getElementById('token').value.trim(); }
-function saveToken(v) {
-  localStorage.setItem('packdms_token', v);
-  document.getElementById('auth-status').textContent = v ? '✓ Token set' : '';
-}
-function headers() {
-  return { 'Authorization': 'Bearer ' + getToken(), 'Content-Type': 'application/json' };
-}
-function multipartHeaders() {
-  return { 'Authorization': 'Bearer ' + getToken() };
-}
-
-// Restore token on load
-document.addEventListener('DOMContentLoaded', () => {
-  const saved = localStorage.getItem('packdms_token');
-  if (saved) { document.getElementById('token').value = saved; saveToken(saved); }
-});
-
-function toggleTokenVisibility() {
-  const el = document.getElementById('token');
-  el.type = el.type === 'password' ? 'text' : 'password';
-}
-
-// ── Tabs ───────────────────────────────────────────────────────────
-function showTab(name) {
-  document.querySelectorAll('.tab-panel').forEach(p => p.classList.add('hidden'));
-  document.querySelectorAll('.tab-btn').forEach(b => {
-    b.classList.remove('bg-indigo-800', 'text-white');
-    b.classList.add('text-indigo-200');
-  });
-  document.getElementById('panel-' + name).classList.remove('hidden');
-  const btn = document.getElementById('tab-' + name);
-  btn.classList.add('bg-indigo-800', 'text-white');
-  btn.classList.remove('text-indigo-200');
-  if (name === 'audit') loadAudit();
-}
-
-// ── Toast ──────────────────────────────────────────────────────────
-function toast(msg, type = 'success') {
-  const el = document.getElementById('toast');
-  el.textContent = msg;
-  el.className = 'fixed bottom-4 right-4 z-50 rounded-lg px-4 py-3 text-sm font-medium text-white shadow-lg ' +
-    (type === 'error' ? 'bg-red-600' : 'bg-green-600');
-  el.classList.remove('hidden');
-  setTimeout(() => el.classList.add('hidden'), 3000);
-}
-
-// ── Modals ─────────────────────────────────────────────────────────
-function closeModals() {
-  document.getElementById('modal-create').classList.add('hidden');
-  document.getElementById('modal-detail').classList.add('hidden');
-}
-function openCreateModal() {
-  document.getElementById('create-title').value = '';
-  document.getElementById('create-metadata').value = '{}';
-  document.getElementById('modal-create').classList.remove('hidden');
-}
-
-// ── API helpers ────────────────────────────────────────────────────
-async function api(path, opts = {}) {
-  const resp = await fetch(path, opts);
-  if (!resp.ok) {
-    let msg = resp.statusText;
-    try { const body = await resp.json(); msg = body.detail || body.title || msg; } catch {}
-    throw new Error(msg);
-  }
-  if (resp.status === 204) return null;
-  const ct = resp.headers.get('content-type') || '';
-  if (ct.includes('json')) return resp.json();
-  return resp;
-}
-
-// ── Status badge ───────────────────────────────────────────────────
-function statusBadge(s) {
-  const colors = {
-    draft: 'bg-yellow-100 text-yellow-800',
-    active: 'bg-green-100 text-green-800',
-    archived: 'bg-blue-100 text-blue-800',
-    deleted: 'bg-red-100 text-red-800',
-  };
-  return `<span class="inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-medium ${colors[s] || 'bg-gray-100 text-gray-800'}">${s}</span>`;
-}
-
-function fmtDate(d) {
-  if (!d) return '—';
-  return new Date(d).toLocaleString();
-}
-
-function shortId(id) {
-  return id ? id.substring(0, 8) + '…' : '—';
-}
-
-// ── Documents ──────────────────────────────────────────────────────
-async function loadDocuments() {
-  if (!getToken()) { toast('Set a bearer token first', 'error'); return; }
-  try {
-    const q = document.getElementById('search-q').value.trim();
-    let url = '/documents?limit=100';
-    if (q) url += '&q=' + encodeURIComponent(q);
-    const docs = await api(url, { headers: headers() });
-    const tbody = document.getElementById('doc-table-body');
-    if (!docs.length) {
-      tbody.innerHTML = '<tr><td colspan="6" class="px-4 py-8 text-center text-sm text-gray-400">No documents found.</td></tr>';
-      return;
-    }
-    tbody.innerHTML = docs.map(d => `
-      <tr class="hover:bg-gray-50 cursor-pointer" onclick="openDocDetail('${d.id}')">
-        <td class="px-4 py-3 text-sm font-medium text-gray-900">${esc(d.title)}</td>
-        <td class="px-4 py-3 text-sm">${statusBadge(d.status)}</td>
-        <td class="px-4 py-3 text-sm text-gray-500 font-mono">${shortId(d.owner_id)}</td>
-        <td class="px-4 py-3 text-sm">${d.legal_hold ? '<span class="text-red-600 font-semibold">Yes</span>' : 'No'}</td>
-        <td class="px-4 py-3 text-sm text-gray-500">${fmtDate(d.updated_at)}</td>
-        <td class="px-4 py-3 text-sm">
-          <button onclick="event.stopPropagation(); openDocDetail('${d.id}')" class="text-indigo-600 hover:text-indigo-800 font-medium">View</button>
-        </td>
-      </tr>
-    `).join('');
-  } catch (e) { toast(e.message, 'error'); }
-}
-
-async function createDocument() {
-  try {
-    const title = document.getElementById('create-title').value.trim();
-    const metaStr = document.getElementById('create-metadata').value.trim();
-    if (!title) { toast('Title is required', 'error'); return; }
-    let metadata;
-    try { metadata = JSON.parse(metaStr); } catch { toast('Invalid JSON metadata', 'error'); return; }
-    await api('/documents', {
-      method: 'POST',
-      headers: headers(),
-      body: JSON.stringify({ title, metadata })
-    });
-    closeModals();
-    toast('Document created');
-    loadDocuments();
-  } catch (e) { toast(e.message, 'error'); }
-}
-
-// ── Document Detail ────────────────────────────────────────────────
-async function openDocDetail(id) {
-  currentDocId = id;
-  try {
-    const doc = await api('/documents/' + id, { headers: headers() });
-    document.getElementById('detail-title').textContent = doc.title;
-
-    let versionsHtml = '';
-    let aclHtml = '';
-    try {
-      const versions = await api('/documents/' + id + '/versions', { headers: headers() });
-      versionsHtml = renderVersions(id, versions);
-    } catch { versionsHtml = '<p class="text-sm text-gray-400">Could not load versions.</p>'; }
-    try {
-      const acl = await api('/documents/' + id + '/acl', { headers: headers() });
-      aclHtml = renderAcl(id, acl);
-    } catch { aclHtml = '<p class="text-sm text-gray-400">Could not load ACL.</p>'; }
-
-    document.getElementById('detail-content').innerHTML = `
-      <!-- Info Grid -->
-      <div class="grid grid-cols-2 gap-4 text-sm">
-        <div><span class="font-medium text-gray-500">ID:</span> <span class="font-mono">${doc.id}</span></div>
-        <div><span class="font-medium text-gray-500">Status:</span> ${statusBadge(doc.status)}</div>
-        <div><span class="font-medium text-gray-500">Owner:</span> <span class="font-mono">${shortId(doc.owner_id)}</span></div>
-        <div><span class="font-medium text-gray-500">Legal Hold:</span> ${doc.legal_hold ? '<span class="text-red-600 font-semibold">Yes</span>' : 'No'}</div>
-        <div><span class="font-medium text-gray-500">Retention Until:</span> ${doc.retention_until ? fmtDate(doc.retention_until) : '—'}</div>
-        <div><span class="font-medium text-gray-500">Created:</span> ${fmtDate(doc.created_at)}</div>
-        <div><span class="font-medium text-gray-500">Updated:</span> ${fmtDate(doc.updated_at)}</div>
-        <div><span class="font-medium text-gray-500">Archived:</span> ${fmtDate(doc.archived_at)}</div>
-      </div>
-
-      <!-- Metadata -->
-      <div>
-        <h4 class="text-sm font-semibold text-gray-700 mb-2">Metadata</h4>
-        <pre class="bg-gray-50 rounded-md p-3 text-xs font-mono overflow-x-auto border">${esc(JSON.stringify(doc.metadata, null, 2))}</pre>
-      </div>
-
-      <!-- Actions -->
-      <div>
-        <h4 class="text-sm font-semibold text-gray-700 mb-2">Actions</h4>
-        <div class="flex flex-wrap gap-2">
-          ${renderStatusActions(doc)}
-          <button onclick="promptPatchDoc('${doc.id}')" class="rounded-md border border-gray-300 px-3 py-1.5 text-xs font-medium text-gray-700 hover:bg-gray-50">Edit Metadata</button>
-          <button onclick="promptLegalHold('${doc.id}', ${doc.legal_hold})" class="rounded-md border border-gray-300 px-3 py-1.5 text-xs font-medium text-gray-700 hover:bg-gray-50">${doc.legal_hold ? 'Remove' : 'Set'} Legal Hold</button>
-          <button onclick="promptRetention('${doc.id}')" class="rounded-md border border-gray-300 px-3 py-1.5 text-xs font-medium text-gray-700 hover:bg-gray-50">Set Retention</button>
-        </div>
-      </div>
-
-      <!-- Versions -->
-      <div>
-        <div class="flex items-center justify-between mb-2">
-          <h4 class="text-sm font-semibold text-gray-700">Versions</h4>
-          <button onclick="promptUploadVersion('${doc.id}')" class="rounded-md bg-indigo-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-indigo-700">Upload Version</button>
-        </div>
-        ${versionsHtml}
-      </div>
-
-      <!-- ACL -->
-      <div>
-        <div class="flex items-center justify-between mb-2">
-          <h4 class="text-sm font-semibold text-gray-700">Access Control List</h4>
-          <button onclick="promptEditAcl('${doc.id}')" class="rounded-md border border-gray-300 px-3 py-1.5 text-xs font-medium text-gray-700 hover:bg-gray-50">Edit ACL</button>
-        </div>
-        ${aclHtml}
-      </div>
-    `;
-    document.getElementById('modal-detail').classList.remove('hidden');
-  } catch (e) { toast(e.message, 'error'); }
-}
-
-function renderStatusActions(doc) {
-  const transitions = {
-    draft: ['active', 'deleted'],
-    active: ['archived', 'deleted'],
-    archived: ['active', 'deleted'],
-    deleted: [],
-  };
-  const allowed = transitions[doc.status] || [];
-  let btns = '';
-  if (doc.status === 'deleted') {
-    btns += `<button onclick="restoreDoc('${doc.id}')" class="rounded-md bg-green-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-green-700">Restore</button>`;
-  }
-  for (const s of allowed) {
-    const color = s === 'deleted' ? 'bg-red-600 hover:bg-red-700' : 'bg-indigo-600 hover:bg-indigo-700';
-    btns += `<button onclick="changeStatus('${doc.id}','${s}')" class="rounded-md ${color} px-3 py-1.5 text-xs font-medium text-white">→ ${s}</button>`;
-  }
-  return btns;
-}
-
-function renderVersions(docId, versions) {
-  if (!versions.length) return '<p class="text-sm text-gray-400">No versions uploaded yet.</p>';
-  return `<div class="overflow-hidden rounded-md border border-gray-200">
-    <table class="min-w-full divide-y divide-gray-200 text-sm">
-      <thead class="bg-gray-50"><tr>
-        <th class="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase">Version</th>
-        <th class="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase">Filename</th>
-        <th class="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase">Size</th>
-        <th class="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase">Status</th>
-        <th class="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase">Created</th>
-        <th class="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase">Actions</th>
-      </tr></thead>
-      <tbody class="divide-y divide-gray-200 bg-white">
-        ${versions.map(v => `<tr>
-          <td class="px-3 py-2 font-medium">v${v.version_number}</td>
-          <td class="px-3 py-2 text-gray-600">${esc(v.original_filename)}</td>
-          <td class="px-3 py-2 text-gray-500">${formatBytes(v.size_bytes)}</td>
-          <td class="px-3 py-2">${statusBadge(v.status)}</td>
-          <td class="px-3 py-2 text-gray-500">${fmtDate(v.created_at)}</td>
-          <td class="px-3 py-2 space-x-2">
-            ${isPreviewable(v.mime_type) ? `<button onclick="previewVersion('${docId}','${v.id}','${esc(v.mime_type)}','${esc(v.original_filename)}')" class="text-emerald-600 hover:text-emerald-800 font-medium">Preview</button>` : ''}
-            <a href="/documents/${docId}/versions/${v.id}/download" target="_blank"
-               class="text-indigo-600 hover:text-indigo-800 font-medium">Download</a>
-            ${v.status !== 'deleted' ? `<button onclick="deleteVersion('${docId}','${v.id}')" class="text-red-600 hover:text-red-800 font-medium">Delete</button>` : ''}
-          </td>
-        </tr>`).join('')}
-      </tbody>
-    </table>
-  </div>`;
-}
-
-function renderAcl(docId, acl) {
-  if (!acl.length) return '<p class="text-sm text-gray-400">No ACL rules defined.</p>';
-  return `<div class="overflow-hidden rounded-md border border-gray-200">
-    <table class="min-w-full divide-y divide-gray-200 text-sm">
-      <thead class="bg-gray-50"><tr>
-        <th class="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase">Type</th>
-        <th class="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase">Principal</th>
-        <th class="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase">Permission</th>
-      </tr></thead>
-      <tbody class="divide-y divide-gray-200 bg-white">
-        ${acl.map(a => `<tr>
-          <td class="px-3 py-2">${esc(a.principal_type)}</td>
-          <td class="px-3 py-2 font-mono text-gray-600">${a.principal_id ? shortId(a.principal_id) : esc(a.role || '—')}</td>
-          <td class="px-3 py-2">${esc(a.permission)}</td>
-        </tr>`).join('')}
-      </tbody>
-    </table>
-  </div>`;
-}
-
-// ── Document Actions ───────────────────────────────────────────────
-async function changeStatus(id, status) {
-  try {
-    await api('/documents/' + id + '/status', {
-      method: 'POST', headers: headers(),
-      body: JSON.stringify({ status })
-    });
-    toast('Status changed to ' + status);
-    openDocDetail(id);
-    loadDocuments();
-  } catch (e) { toast(e.message, 'error'); }
-}
-
-async function restoreDoc(id) {
-  try {
-    await api('/documents/' + id + '/restore', { method: 'POST', headers: headers() });
-    toast('Document restored');
-    openDocDetail(id);
-    loadDocuments();
-  } catch (e) { toast(e.message, 'error'); }
-}
-
-function promptPatchDoc(id) {
-  const title = prompt('New title (leave empty to keep current):');
-  const metaStr = prompt('New metadata JSON (leave empty to keep current):');
-  const body = {};
-  if (title) body.title = title;
-  if (metaStr) {
-    try { body.metadata = JSON.parse(metaStr); } catch { toast('Invalid JSON', 'error'); return; }
-  }
-  if (!Object.keys(body).length) return;
-  api('/documents/' + id, { method: 'PATCH', headers: headers(), body: JSON.stringify(body) })
-    .then(() => { toast('Document updated'); openDocDetail(id); loadDocuments(); })
-    .catch(e => toast(e.message, 'error'));
-}
-
-async function promptLegalHold(id, current) {
-  try {
-    await api('/documents/' + id + '/legal-hold', {
-      method: 'POST', headers: headers(),
-      body: JSON.stringify({ hold: !current })
-    });
-    toast('Legal hold ' + (!current ? 'enabled' : 'removed'));
-    openDocDetail(id);
-    loadDocuments();
-  } catch (e) { toast(e.message, 'error'); }
-}
-
-function promptRetention(id) {
-  const val = prompt('Retention until (ISO date, e.g. 2026-12-31T00:00:00Z, or empty to clear):');
-  const body = { retention_until: val || null };
-  api('/documents/' + id + '/retention', { method: 'POST', headers: headers(), body: JSON.stringify(body) })
-    .then(() => { toast('Retention updated'); openDocDetail(id); loadDocuments(); })
-    .catch(e => toast(e.message, 'error'));
-}
-
-// ── Versions ───────────────────────────────────────────────────────
-function promptUploadVersion(docId) {
-  const input = document.createElement('input');
-  input.type = 'file';
-  input.onchange = async () => {
-    const file = input.files[0];
-    if (!file) return;
-    const form = new FormData();
-    form.append('file', file);
-    try {
-      const resp = await fetch('/documents/' + docId + '/versions', {
-        method: 'POST',
-        headers: multipartHeaders(),
-        body: form
-      });
-      if (!resp.ok) {
-        let msg = resp.statusText;
-        try { const b = await resp.json(); msg = b.detail || msg; } catch {}
-        throw new Error(msg);
-      }
-      toast('Version uploaded');
-      openDocDetail(docId);
-    } catch (e) { toast(e.message, 'error'); }
-  };
-  input.click();
-}
-
-async function deleteVersion(docId, vid) {
-  if (!confirm('Soft-delete this version?')) return;
-  try {
-    await api('/documents/' + docId + '/versions/' + vid, { method: 'DELETE', headers: headers() });
-    toast('Version deleted');
-    openDocDetail(docId);
-  } catch (e) { toast(e.message, 'error'); }
-}
-
-// ── ACL ────────────────────────────────────────────────────────────
-function promptEditAcl(docId) {
-  const json = prompt('Enter ACL rules as JSON array, e.g.:\n[{"principal_type":"role","role":"admin","permission":"admin"}]');
-  if (!json) return;
-  let rules;
-  try { rules = JSON.parse(json); } catch { toast('Invalid JSON', 'error'); return; }
-  // Ensure each rule has required fields
-  rules = rules.map(r => ({
-    id: '00000000-0000-0000-0000-000000000000',
-    document_id: docId,
-    principal_type: r.principal_type || 'role',
-    principal_id: r.principal_id || null,
-    role: r.role || null,
-    permission: r.permission || 'read',
-  }));
-  api('/documents/' + docId + '/acl', { method: 'PUT', headers: headers(), body: JSON.stringify(rules) })
-    .then(() => { toast('ACL updated'); openDocDetail(docId); })
-    .catch(e => toast(e.message, 'error'));
-}
-
-// ── Audit ──────────────────────────────────────────────────────────
-async function loadAudit() {
-  if (!getToken()) { toast('Set a bearer token first', 'error'); return; }
-  try {
-    const logs = await api('/audit?limit=100', { headers: headers() });
-    const tbody = document.getElementById('audit-table-body');
-    if (!logs.length) {
-      tbody.innerHTML = '<tr><td colspan="5" class="px-4 py-8 text-center text-sm text-gray-400">No audit logs found.</td></tr>';
-      return;
-    }
-    tbody.innerHTML = logs.map(l => `<tr class="hover:bg-gray-50">
-      <td class="px-4 py-3 text-sm text-gray-500">${fmtDate(l.created_at)}</td>
-      <td class="px-4 py-3 text-sm font-medium">${esc(l.action)}</td>
-      <td class="px-4 py-3 text-sm text-gray-600">${esc(l.resource_type)}/${shortId(l.resource_id)}</td>
-      <td class="px-4 py-3 text-sm text-gray-500 font-mono">${shortId(l.actor_id)}</td>
-      <td class="px-4 py-3 text-sm text-gray-500 font-mono text-xs">${l.details ? esc(JSON.stringify(l.details)) : '—'}</td>
-    </tr>`).join('');
-  } catch (e) { toast(e.message, 'error'); }
-}
-
-// ── Utilities ──────────────────────────────────────────────────────
-function esc(s) {
-  if (s == null) return '';
-  const d = document.createElement('div');
-  d.textContent = String(s);
-  return d.innerHTML;
-}
-
-function formatBytes(b) {
-  if (b === 0) return '0 B';
-  const k = 1024;
-  const sizes = ['B', 'KB', 'MB', 'GB'];
-  const i = Math.floor(Math.log(b) / Math.log(k));
-  return parseFloat((b / Math.pow(k, i)).toFixed(1)) + ' ' + sizes[i];
-}
-
-// ── Preview ───────────────────────────────────────────────────────
-const PREVIEWABLE_TYPES = [
-  'application/pdf',
-  'image/png', 'image/jpeg', 'image/gif', 'image/webp', 'image/svg+xml', 'image/bmp',
-  'text/plain', 'text/html', 'text/css', 'text/javascript', 'text/csv', 'text/xml',
-  'application/json', 'application/xml',
-  'video/mp4', 'video/webm',
-  'audio/mpeg', 'audio/ogg', 'audio/wav',
-];
-
-function isPreviewable(mime) {
-  if (!mime) return false;
-  return PREVIEWABLE_TYPES.some(t => mime.startsWith(t));
-}
-
-function previewVersion(docId, vid, mime, filename) {
-  const url = `/documents/${docId}/versions/${vid}/download`;
-  const modal = document.getElementById('preview-modal');
-  const title = document.getElementById('preview-title');
-  const body = document.getElementById('preview-body');
-  title.textContent = filename || 'Preview';
-  body.innerHTML = '<p class="text-sm text-gray-400">Loading…</p>';
-  modal.classList.remove('hidden');
-
-  const authHeaders = { 'Authorization': 'Bearer ' + getToken() };
-
-  if (mime.startsWith('text/') || mime === 'application/json' || mime === 'application/xml') {
-    fetch(url, { headers: authHeaders })
-      .then(r => { if (!r.ok) throw new Error(r.statusText); return r.text(); })
-      .then(text => {
-        body.innerHTML = `<pre class="bg-gray-900 text-gray-100 p-4 rounded text-sm overflow-auto" style="max-height:75vh; white-space:pre-wrap; word-break:break-word;">${esc(text)}</pre>`;
-      })
-      .catch(() => { body.innerHTML = '<p class="text-red-500">Failed to load preview.</p>'; });
-  } else {
-    fetch(url, { headers: authHeaders })
-      .then(r => { if (!r.ok) throw new Error(r.statusText); return r.blob(); })
-      .then(blob => {
-        const objUrl = URL.createObjectURL(blob);
-        if (mime === 'application/pdf') {
-          body.innerHTML = `<iframe src="${objUrl}" class="w-full h-full rounded" style="min-height:75vh;"></iframe>`;
-        } else if (mime.startsWith('image/')) {
-          body.innerHTML = `<div class="flex items-center justify-center h-full"><img src="${objUrl}" alt="${esc(filename)}" class="max-w-full max-h-[75vh] rounded shadow"></div>`;
-        } else if (mime.startsWith('video/')) {
-          body.innerHTML = `<video controls class="w-full max-h-[75vh] rounded"><source src="${objUrl}" type="${mime}">Your browser does not support video playback.</video>`;
-        } else if (mime.startsWith('audio/')) {
-          body.innerHTML = `<div class="flex items-center justify-center h-64"><audio controls><source src="${objUrl}" type="${mime}">Your browser does not support audio playback.</audio></div>`;
-        } else {
-          body.innerHTML = '<p class="text-gray-500">Preview not available for this file type.</p>';
-        }
-      })
-      .catch(() => { body.innerHTML = '<p class="text-red-500">Failed to load preview.</p>'; });
-  }
-}
-
-function closePreview() {
-  const modal = document.getElementById('preview-modal');
-  modal.classList.add('hidden');
-  document.getElementById('preview-body').innerHTML = '';
-}
-</script>
-
 <!-- Preview Modal -->
 <div id="preview-modal" class="hidden fixed inset-0 z-50 flex items-center justify-center bg-black/60" onclick="if(event.target===this)closePreview()">
   <div class="bg-white rounded-xl shadow-2xl w-[90vw] max-w-5xl max-h-[90vh] flex flex-col">
@@ -680,5 +186,118 @@ function closePreview() {
     <div id="preview-body" class="flex-1 overflow-auto p-4"></div>
   </div>
 </div>
+
+<!-- Edit Metadata Modal -->
+<div id="modal-edit-metadata" class="hidden fixed inset-0 z-50 overflow-y-auto">
+  <div class="flex min-h-full items-center justify-center p-4">
+    <div class="fixed inset-0 bg-gray-500/75" onclick="closeEditMetadataModal()"></div>
+    <div class="relative bg-white rounded-xl shadow-xl w-full max-w-lg p-6 fade-in">
+      <h3 class="text-lg font-semibold text-gray-900 mb-4">Edit Document</h3>
+      <div class="space-y-4">
+        <div>
+          <label class="block text-sm font-medium text-gray-700 mb-1">Title <span class="text-gray-400 font-normal">(leave empty to keep current)</span></label>
+          <input id="edit-meta-title" type="text" class="w-full rounded-md border border-gray-300 px-3 py-2 text-sm shadow-sm focus:border-indigo-500 focus:ring-indigo-500" placeholder="New title">
+        </div>
+        <div>
+          <label class="block text-sm font-medium text-gray-700 mb-1">Metadata (JSON) <span class="text-gray-400 font-normal">(leave empty to keep current)</span></label>
+          <textarea id="edit-meta-json" rows="4" class="w-full rounded-md border border-gray-300 px-3 py-2 text-sm shadow-sm font-mono focus:border-indigo-500 focus:ring-indigo-500" placeholder='{"department": "Legal"}'></textarea>
+        </div>
+      </div>
+      <div class="mt-6 flex justify-end gap-3">
+        <button onclick="closeEditMetadataModal()" class="rounded-md border border-gray-300 px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50">Cancel</button>
+        <button onclick="submitPatchDoc()" class="rounded-md bg-indigo-600 px-4 py-2 text-sm font-medium text-white hover:bg-indigo-700">Save</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Set Retention Modal -->
+<div id="modal-retention" class="hidden fixed inset-0 z-50 overflow-y-auto">
+  <div class="flex min-h-full items-center justify-center p-4">
+    <div class="fixed inset-0 bg-gray-500/75" onclick="closeRetentionModal()"></div>
+    <div class="relative bg-white rounded-xl shadow-xl w-full max-w-md p-6 fade-in">
+      <h3 class="text-lg font-semibold text-gray-900 mb-4">Set Retention</h3>
+      <div class="space-y-4">
+        <div>
+          <label class="block text-sm font-medium text-gray-700 mb-1">Retention Until</label>
+          <input id="retention-date" type="datetime-local" class="w-full rounded-md border border-gray-300 px-3 py-2 text-sm shadow-sm focus:border-indigo-500 focus:ring-indigo-500">
+          <p class="mt-1 text-xs text-gray-400">Leave empty to clear retention.</p>
+        </div>
+      </div>
+      <div class="mt-6 flex justify-end gap-3">
+        <button onclick="closeRetentionModal()" class="rounded-md border border-gray-300 px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50">Cancel</button>
+        <button onclick="submitRetention()" class="rounded-md bg-indigo-600 px-4 py-2 text-sm font-medium text-white hover:bg-indigo-700">Save</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Edit ACL Modal -->
+<div id="modal-edit-acl" class="hidden fixed inset-0 z-50 overflow-y-auto">
+  <div class="flex min-h-full items-center justify-center p-4">
+    <div class="fixed inset-0 bg-gray-500/75" onclick="closeEditAclModal()"></div>
+    <div class="relative bg-white rounded-xl shadow-xl w-full max-w-lg p-6 fade-in">
+      <h3 class="text-lg font-semibold text-gray-900 mb-4">Edit Access Control List</h3>
+      <div class="space-y-4">
+        <div>
+          <label class="block text-sm font-medium text-gray-700 mb-1">ACL Rules (JSON array)</label>
+          <textarea id="edit-acl-json" rows="6" class="w-full rounded-md border border-gray-300 px-3 py-2 text-sm shadow-sm font-mono focus:border-indigo-500 focus:ring-indigo-500" placeholder='[{"principal_type":"role","role":"admin","permission":"admin"}]'></textarea>
+          <p class="mt-1 text-xs text-gray-400">Each rule: <code class="bg-gray-100 px-1 rounded">{"principal_type", "role" or "principal_id", "permission"}</code></p>
+        </div>
+      </div>
+      <div class="mt-6 flex justify-end gap-3">
+        <button onclick="closeEditAclModal()" class="rounded-md border border-gray-300 px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50">Cancel</button>
+        <button onclick="submitEditAcl()" class="rounded-md bg-indigo-600 px-4 py-2 text-sm font-medium text-white hover:bg-indigo-700">Save</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Confirm Delete Version Modal -->
+<div id="modal-confirm-delete" class="hidden fixed inset-0 z-50 overflow-y-auto">
+  <div class="flex min-h-full items-center justify-center p-4">
+    <div class="fixed inset-0 bg-gray-500/75" onclick="closeConfirmDeleteModal()"></div>
+    <div class="relative bg-white rounded-xl shadow-xl w-full max-w-sm p-6 fade-in">
+      <h3 class="text-lg font-semibold text-gray-900 mb-2">Delete Version</h3>
+      <p class="text-sm text-gray-600 mb-6">Are you sure you want to soft-delete this version? This action can be undone by an administrator.</p>
+      <div class="flex justify-end gap-3">
+        <button onclick="closeConfirmDeleteModal()" class="rounded-md border border-gray-300 px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50">Cancel</button>
+        <button onclick="confirmDeleteVersion()" class="rounded-md bg-red-600 px-4 py-2 text-sm font-medium text-white hover:bg-red-700">Delete</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Upload Version Modal -->
+<div id="modal-upload-version" class="hidden fixed inset-0 z-50 overflow-y-auto">
+  <div class="flex min-h-full items-center justify-center p-4">
+    <div class="fixed inset-0 bg-gray-500/75" onclick="closeUploadVersionModal()"></div>
+    <div class="relative bg-white rounded-xl shadow-xl w-full max-w-md p-6 fade-in">
+      <h3 class="text-lg font-semibold text-gray-900 mb-4">Upload New Version</h3>
+      <div class="space-y-4">
+        <div>
+          <label class="block text-sm font-medium text-gray-700 mb-1">File</label>
+          <input id="upload-version-file" type="file" class="w-full rounded-md border border-gray-300 px-3 py-2 text-sm shadow-sm file:mr-3 file:rounded-md file:border-0 file:bg-indigo-50 file:px-3 file:py-1.5 file:text-sm file:font-medium file:text-indigo-700 hover:file:bg-indigo-100">
+        </div>
+      </div>
+      <div class="mt-6 flex justify-end gap-3">
+        <button onclick="closeUploadVersionModal()" class="rounded-md border border-gray-300 px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50">Cancel</button>
+        <button onclick="submitUploadVersion()" class="rounded-md bg-indigo-600 px-4 py-2 text-sm font-medium text-white hover:bg-indigo-700">Upload</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Toast -->
+<div id="toast" class="hidden fixed bottom-4 right-4 z-50 rounded-lg px-4 py-3 text-sm font-medium text-white shadow-lg"></div>
+
+<!-- Scripts (order matters: utils first, then app core, then feature modules) -->
+<script src="/admin/js/utils.js"></script>
+<script src="/admin/js/app.js"></script>
+<script src="/admin/js/documents.js"></script>
+<script src="/admin/js/versions.js"></script>
+<script src="/admin/js/preview.js"></script>
+<script src="/admin/js/acl.js"></script>
+<script src="/admin/js/audit.js"></script>
 </body>
 </html>

@@ -25,6 +25,13 @@ use super::types::{
 #[utoipa::path(
     post,
     path = "/documents",
+    request_body = CreateDocumentRequest,
+    responses(
+        (status = 201, description = "Document created", body = DocumentResponse),
+        (status = 400, description = "Bad request", body = ProblemDetails),
+        (status = 401, description = "Unauthorized", body = ProblemDetails),
+        (status = 403, description = "Forbidden", body = ProblemDetails)
+    ),
     security(("bearerAuth" = ["document:write"])),
     tag = "Documents"
 )]
@@ -66,8 +73,8 @@ pub async fn create_document(
     path = "/documents/{id}",
     responses(
         (status = 200, description = "Document found", body = DocumentResponse),
-        (status = 401, description = "Unauthorized"),
-        (status = 404, description = "Document not found")
+        (status = 401, description = "Unauthorized", body = ProblemDetails),
+        (status = 404, description = "Not found", body = ProblemDetails)
     ),
     params(
         ("id" = Uuid, Path, description = "Document identifier")
@@ -97,8 +104,8 @@ pub async fn get_document(
     path = "/documents",
     responses(
         (status = 200, description = "List of documents", body = [DocumentResponse]),
-        (status = 400, description = "Invalid JSON in 'q' parameter"),
-        (status = 401, description = "Unauthorized")
+        (status = 400, description = "Bad request", body = ProblemDetails),
+        (status = 401, description = "Unauthorized", body = ProblemDetails)
     ),
     params(
         ("q" = Option<String>, Query, description = "JSON metadata search pattern"),
@@ -139,9 +146,9 @@ pub async fn search_documents(
     request_body = PatchDocumentRequest,
     responses(
         (status = 200, description = "Document updated successfully", body = DocumentResponse),
-        (status = 401, description = "Unauthorized"),
-        (status = 403, description = "Forbidden (not owner or admin)"),
-        (status = 404, description = "Document not found")
+        (status = 401, description = "Unauthorized", body = ProblemDetails),
+        (status = 403, description = "Forbidden", body = ProblemDetails),
+        (status = 404, description = "Not found", body = ProblemDetails)
     ),
     params(
         ("id" = Uuid, Path, description = "Document identifier")
@@ -195,10 +202,10 @@ pub async fn patch_document(
     request_body = StatusChangeRequest,
     responses(
         (status = 200, description = "Status updated successfully", body = DocumentResponse),
-        (status = 400, description = "Invalid status transition"),
-        (status = 401, description = "Unauthorized"),
-        (status = 403, description = "Forbidden (not owner or admin)"),
-        (status = 404, description = "Document not found")
+        (status = 400, description = "Bad request", body = ProblemDetails),
+        (status = 401, description = "Unauthorized", body = ProblemDetails),
+        (status = 403, description = "Forbidden", body = ProblemDetails),
+        (status = 404, description = "Not found", body = ProblemDetails)
     ),
     params(
         ("id" = Uuid, Path, description = "Document identifier")
@@ -279,9 +286,9 @@ pub async fn change_status(
     path = "/documents/{id}/restore",
     responses(
         (status = 200, description = "Document restored", body = DocumentResponse),
-        (status = 400, description = "Document is not deleted"),
-        (status = 401, description = "Unauthorized"),
-        (status = 403, description = "Forbidden"),
+        (status = 400, description = "Bad request", body = ProblemDetails),
+        (status = 401, description = "Unauthorized", body = ProblemDetails),
+        (status = 403, description = "Forbidden", body = ProblemDetails),
         (status = 404, description = "Not found")
     ),
     params(
@@ -332,8 +339,8 @@ pub async fn restore_document(
     request_body = LegalHoldRequest,
     responses(
         (status = 200, description = "Legal hold updated", body = DocumentResponse),
-        (status = 401, description = "Unauthorized"),
-        (status = 403, description = "Forbidden (requires admin)"),
+        (status = 401, description = "Unauthorized", body = ProblemDetails),
+        (status = 403, description = "Forbidden", body = ProblemDetails),
         (status = 404, description = "Not found")
     ),
     params(
@@ -378,8 +385,8 @@ pub async fn set_legal_hold(
     request_body = RetentionRequest,
     responses(
         (status = 200, description = "Retention updated", body = DocumentResponse),
-        (status = 401, description = "Unauthorized"),
-        (status = 403, description = "Forbidden (requires admin)"),
+        (status = 401, description = "Unauthorized", body = ProblemDetails),
+        (status = 403, description = "Forbidden", body = ProblemDetails),
         (status = 404, description = "Not found")
     ),
     params(
