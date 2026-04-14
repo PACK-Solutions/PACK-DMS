@@ -44,19 +44,17 @@ impl AuthContext {
         self.scopes.iter().any(|s| s == scope)
     }
 
-    pub fn has_role(&self, role: &str) -> bool {
-        self.scopes.iter().any(|s| s == role)
-    }
-
-    /// Returns `Ok(())` if the user has the given scope, or a `FORBIDDEN` error.
-    pub fn require_scope(&self, scope: &str) -> Result<(), (axum::http::StatusCode, String)> {
+    /// Returns `Ok(())` if the user has the given scope, or a `ProblemDetails` error.
+    pub fn require_scope(
+        &self,
+        scope: &str,
+    ) -> Result<(), crate::api::error::ProblemDetails> {
         if self.has_scope(scope) {
             Ok(())
         } else {
-            Err((
-                axum::http::StatusCode::FORBIDDEN,
-                format!("Missing {scope} scope"),
-            ))
+            Err(crate::api::error::forbidden(format!(
+                "missing required scope: {scope}"
+            )))
         }
     }
 }

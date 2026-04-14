@@ -1,3 +1,8 @@
+-- =============================================================================
+-- PackDMS Schema
+-- Core tables, lifecycle management, blob deduplication, and async job outbox.
+-- =============================================================================
+
 -- Create Users table
 CREATE TABLE IF NOT EXISTS users (
     id UUID PRIMARY KEY,
@@ -18,7 +23,24 @@ CREATE TABLE IF NOT EXISTS documents (
     retention_until TIMESTAMPTZ,
     metadata JSONB NOT NULL DEFAULT '{}'::jsonB,
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    deleted_at TIMESTAMPTZ,
+    deleted_by UUID REFERENCES users(id),
+    archived_at TIMESTAMPTZ
+);
+
+-- Blob registry: physical objects in S3, decoupled from versions
+-- Enables deduplication and safe purge (only purge when ref_count = 0)
+CREATE TABLE IF NOT EXISTS blobs (
+    id UUID PRIMARY KEY,
+    storage_key TEXT UNIQUE NOT NULL,
+    content_hash TEXT NOT NULL,
+    size_bytes BIGINT NOT NULL,
+    mime_type TEXT NOT NULL,
+    ref_count INT NOT NULL DEFAULT 1,
+    status TEXT NOT NULL DEFAULT 'active',  -- active, pending_deletion, purged, purge_failed
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    purged_at TIMESTAMPTZ
 );
 
 -- Create Document Versions table
@@ -32,6 +54,11 @@ CREATE TABLE IF NOT EXISTS document_versions (
     size_bytes BIGINT NOT NULL,
     mime_type TEXT NOT NULL,
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    status TEXT NOT NULL DEFAULT 'active',
+    original_filename TEXT NOT NULL DEFAULT 'unknown',
+    deleted_at TIMESTAMPTZ,
+    deleted_by UUID REFERENCES users(id),
+    blob_id UUID REFERENCES blobs(id),
     UNIQUE(document_id, version_number)
 );
 
@@ -65,14 +92,38 @@ CREATE TABLE IF NOT EXISTS audit_log (
     details JSONB NOT NULL DEFAULT '{}'::jsonB
 );
 
+-- Outbox table for async jobs (upload finalization, purge, reconciliation)
+CREATE TABLE IF NOT EXISTS job_outbox (
+    id UUID PRIMARY KEY,
+    job_type TEXT NOT NULL,          -- e.g. 'purge_blob', 'finalize_upload', 'reconcile', 'cleanup_orphans'
+    payload JSONB NOT NULL DEFAULT '{}'::jsonb,
+    status TEXT NOT NULL DEFAULT 'pending',  -- pending, processing, completed, failed, dead
+    attempts INT NOT NULL DEFAULT 0,
+    max_attempts INT NOT NULL DEFAULT 3,
+    scheduled_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    started_at TIMESTAMPTZ,
+    completed_at TIMESTAMPTZ,
+    last_error TEXT,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
 -- Indexes
 CREATE INDEX IF NOT EXISTS idx_documents_status_updated ON documents(status, updated_at);
 CREATE INDEX IF NOT EXISTS idx_documents_owner_updated ON documents(owner_id, updated_at);
 CREATE INDEX IF NOT EXISTS idx_documents_metadata ON documents USING GIN (metadata);
+CREATE INDEX IF NOT EXISTS idx_documents_deleted_at ON documents(deleted_at) WHERE deleted_at IS NOT NULL;
+
+CREATE INDEX IF NOT EXISTS idx_document_versions_status ON document_versions(status);
+
+CREATE INDEX IF NOT EXISTS idx_blobs_content_hash ON blobs(content_hash);
+CREATE INDEX IF NOT EXISTS idx_blobs_status ON blobs(status);
 
 CREATE INDEX IF NOT EXISTS idx_audit_log_resource_ts ON audit_log(resource_id, ts);
 CREATE INDEX IF NOT EXISTS idx_audit_log_actor_ts ON audit_log(actor_id, ts);
 CREATE INDEX IF NOT EXISTS idx_audit_log_action_ts ON audit_log(action, ts);
+
+CREATE INDEX IF NOT EXISTS idx_job_outbox_status_scheduled ON job_outbox(status, scheduled_at);
+CREATE INDEX IF NOT EXISTS idx_job_outbox_type_status ON job_outbox(job_type, status);
 
 -- Seed some initial data
 INSERT INTO users (id, email, roles, status) VALUES 

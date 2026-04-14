@@ -40,16 +40,6 @@ impl ProblemDetails {
             instance: None,
         }
     }
-
-    pub fn from_status(status: StatusCode) -> Self {
-        Self {
-            problem_type: "about:blank".to_string(),
-            title: canonical_reason(status).to_string(),
-            status: status.as_u16(),
-            detail: None,
-            instance: None,
-        }
-    }
 }
 
 impl From<(StatusCode, String)> for ProblemDetails {
@@ -61,6 +51,21 @@ impl From<(StatusCode, String)> for ProblemDetails {
 impl IntoResponse for ProblemDetails {
     fn into_response(self) -> Response {
         let status = StatusCode::from_u16(self.status).unwrap_or(StatusCode::INTERNAL_SERVER_ERROR);
+        if status.is_client_error() {
+            tracing::warn!(
+                status = self.status,
+                title = %self.title,
+                detail = ?self.detail,
+                "Client error response"
+            );
+        } else if status.is_server_error() {
+            tracing::error!(
+                status = self.status,
+                title = %self.title,
+                detail = ?self.detail,
+                "Server error response"
+            );
+        }
         let mut response = (status, Json(self)).into_response();
         response.headers_mut().insert(
             axum::http::header::CONTENT_TYPE,
@@ -77,8 +82,11 @@ fn canonical_reason(status: StatusCode) -> &'static str {
 }
 
 /// Converts any `Debug`-able error into a 500 ProblemDetails response.
+///
+/// The original error is logged server-side but **not** exposed to the client.
 pub fn internal<E: std::fmt::Debug>(e: E) -> ProblemDetails {
-    ProblemDetails::new(StatusCode::INTERNAL_SERVER_ERROR, format!("{e:?}"))
+    tracing::error!(error = ?e, "internal server error");
+    ProblemDetails::new(StatusCode::INTERNAL_SERVER_ERROR, "internal server error")
 }
 
 /// Helper to create a not-found ProblemDetails.

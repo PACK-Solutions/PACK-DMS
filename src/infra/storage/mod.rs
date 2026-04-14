@@ -50,9 +50,6 @@ impl S3BlobStore {
         })
     }
 
-    pub fn bucket(&self) -> &str {
-        &self.bucket
-    }
 }
 
 #[async_trait]

@@ -33,6 +33,8 @@ Documents follow a strict state machine:
   └───────┘
 ```
 
+Once purged by the background retention worker, a document reaches the **terminal `purged` state** and cannot be restored.
+
 ### Status transitions
 
 | From | To | Conditions |
@@ -62,7 +64,24 @@ The document's `current_version` pointer is automatically updated on each upload
 A document under legal hold **cannot be deleted or have its status changed to deleted**. Legal hold is toggled via a dedicated endpoint and is recorded in the audit log.
 
 ### Retention Policy
-A retention period sets an expiry date before which the document **cannot be deleted**. Once the retention date passes, normal deletion rules apply again.
+A retention period sets an expiry date before which the document **cannot be deleted**. Once the retention date passes, normal deletion rules apply again. Additionally, **when the retention date expires, the document is automatically purged** by a background worker — regardless of whether it was soft-deleted first.
+
+### Automatic Purge
+
+A background worker runs every 60 seconds and permanently purges documents that meet **either** of these conditions (provided `legal_hold` is `false`):
+
+1. **Soft-deleted documents** whose optional `retention_until` has expired (or was never set).
+2. **Any non-purged document** (including `active`, `draft`, or `archived`) whose `retention_until` date has passed.
+
+When a document is purged:
+- All associated versions are soft-deleted.
+- Blob reference counts are decremented; blobs reaching `ref_count = 0` are marked `pending_deletion`.
+- The document status is set to `purged` (a terminal state).
+- An audit log entry (`document.retention_purge`) is created.
+
+A separate **blob purge worker** (every 30 s) then deletes the physical objects from storage for blobs in `pending_deletion` status.
+
+> **Note:** Purged documents cannot be restored. To prevent automatic purge, either remove the `retention_until` date before it expires or place the document under legal hold.
 
 ## Access Control (ACL)
 

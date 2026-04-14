@@ -60,6 +60,8 @@ pub struct DocumentResponse {
     pub deleted_at: Option<DateTime<Utc>>,
     /// Archive timestamp (null if not archived).
     pub archived_at: Option<DateTime<Utc>>,
+    /// Optional parent document ID for folder/collection hierarchy.
+    pub parent_id: Option<Uuid>,
 }
 
 impl From<Document> for DocumentResponse {
@@ -77,6 +79,7 @@ impl From<Document> for DocumentResponse {
             updated_at: d.updated_at,
             deleted_at: d.deleted_at,
             archived_at: d.archived_at,
+            parent_id: d.parent_id,
         }
     }
 }
@@ -100,15 +103,37 @@ pub struct VersionResponse {
     pub created_at: DateTime<Utc>,
 }
 
+/// Maximum number of records a single query may return.
+const MAX_LIMIT: i64 = 200;
+/// Default page size when the caller omits `limit`.
+const DEFAULT_LIMIT: i64 = 50;
+
+/// Maximum allowed length for a document title.
+pub const MAX_TITLE_LENGTH: usize = 500;
+
 /// Query parameters for searching documents and audit logs.
 #[derive(Deserialize)]
 pub struct SearchQuery {
     /// JSON pattern to match against document metadata (e.g., {"department": "Legal"}).
     pub q: Option<String>,
-    /// Maximum number of records to return (default: 50).
+    /// Maximum number of records to return (default: 50, max: 200).
     pub limit: Option<i64>,
     /// Number of records to skip (default: 0).
     pub offset: Option<i64>,
+}
+
+impl SearchQuery {
+    /// Return the effective limit, clamped to `[1, MAX_LIMIT]`.
+    pub fn effective_limit(&self) -> i64 {
+        self.limit
+            .unwrap_or(DEFAULT_LIMIT)
+            .clamp(1, MAX_LIMIT)
+    }
+
+    /// Return the effective offset, floored at 0.
+    pub fn effective_offset(&self) -> i64 {
+        self.offset.unwrap_or(0).max(0)
+    }
 }
 
 /// Request to update document fields.

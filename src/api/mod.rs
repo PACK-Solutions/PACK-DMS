@@ -1,4 +1,5 @@
 mod acl;
+pub mod acl_guard;
 mod audit;
 mod documents;
 pub mod error;
@@ -9,6 +10,7 @@ use crate::domain::models::*;
 use crate::infra::auth::AppState;
 use axum::{
     Router,
+    extract::DefaultBodyLimit,
     routing::{delete, get, post},
 };
 use error::ProblemDetails;
@@ -37,6 +39,7 @@ pub use types::{
         documents::set_retention,
         acl::get_acl,
         acl::put_acl,
+        acl::patch_acl,
         audit::list_audit
     ),
     components(
@@ -55,7 +58,8 @@ pub use types::{
             RetentionRequest,
             PatchDocumentRequest,
             StatusChangeRequest,
-            ProblemDetails
+            ProblemDetails,
+            acl::AclPatchEntry
         )
     ),
     modifiers(&SecurityAddon, &DescriptionAddon),
@@ -113,7 +117,9 @@ pub fn router(state: Arc<AppState>) -> Router {
         .route("/documents/{id}/retention", post(documents::set_retention))
         .route(
             "/documents/{id}/versions",
-            post(versions::upload_version).get(versions::list_versions),
+            post(versions::upload_version)
+                .route_layer(DefaultBodyLimit::max(250 * 1024 * 1024))
+                .get(versions::list_versions),
         )
         .route(
             "/documents/{id}/versions/{vid}/download",
@@ -123,7 +129,7 @@ pub fn router(state: Arc<AppState>) -> Router {
             "/documents/{id}/versions/{vid}",
             delete(versions::delete_version),
         )
-        .route("/documents/{id}/acl", get(acl::get_acl).put(acl::put_acl))
+        .route("/documents/{id}/acl", get(acl::get_acl).put(acl::put_acl).patch(acl::patch_acl))
         .route("/audit", get(audit::list_audit))
         .with_state(state)
 }

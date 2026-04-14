@@ -3,7 +3,8 @@
 //! Workers are spawned as Tokio tasks and poll the `job_outbox` table
 //! or run periodic maintenance (purge, reconciliation, orphan cleanup).
 
-use crate::infra::db::{BlobRepo, JobRepo};
+use crate::domain::models::AuditLog;
+use crate::infra::db::{AuditRepo, BlobRepo, DocumentRepo, JobRepo};
 use crate::infra::storage::BlobStore;
 use sqlx::PgPool;
 use std::sync::Arc;
@@ -19,6 +20,14 @@ pub fn spawn_all(pool: PgPool, storage: Arc<dyn BlobStore>) -> Vec<tokio::task::
         let storage = storage.clone();
         handles.push(tokio::spawn(async move {
             blob_purge_loop(pool, storage).await;
+        }));
+    }
+
+    // Document retention purge worker — purges documents past retention
+    {
+        let pool = pool.clone();
+        handles.push(tokio::spawn(async move {
+            document_purge_loop(pool).await;
         }));
     }
 
@@ -77,6 +86,67 @@ pub async fn run_blob_purge(pool: &PgPool, storage: &Arc<dyn BlobStore>) -> anyh
     Ok(())
 }
 
+/// Periodically purge documents whose retention period has expired.
+async fn document_purge_loop(pool: PgPool) {
+    let interval = Duration::from_secs(60);
+    loop {
+        tokio::time::sleep(interval).await;
+        if let Err(e) = run_document_purge(&pool).await {
+            tracing::error!("document retention purge error: {e:?}");
+        }
+    }
+}
+
+/// Single pass of document retention purge.
+pub async fn run_document_purge(pool: &PgPool) -> anyhow::Result<()> {
+    let documents = DocumentRepo::list_pending_purge(pool, 50).await?;
+    for doc in documents {
+        tracing::info!(
+            document_id = %doc.id,
+            title = %doc.title,
+            retention_until = ?doc.retention_until,
+            "purging document after retention expiry"
+        );
+        let mut tx = pool.begin().await?;
+
+        // Soft-delete associated versions and decrement blob ref_counts
+        let versions =
+            crate::infra::db::VersionRepo::list_by_document_id(pool, doc.id).await?;
+        for version in &versions {
+            if version.status != "deleted" {
+                crate::infra::db::VersionRepo::soft_delete(
+                    &mut tx,
+                    version.id,
+                    doc.owner_id,
+                )
+                .await?;
+                // Only decrement for versions not already deleted — already-deleted
+                // versions had their blob ref_count decremented at delete time.
+                if let Some(blob_id) = version.blob_id {
+                    BlobRepo::decrement_ref(&mut tx, blob_id).await?;
+                }
+            }
+        }
+
+        DocumentRepo::mark_purged(&mut tx, doc.id).await?;
+        let audit = AuditLog::system_builder(
+            "document.retention_purge",
+            "document",
+            doc.id,
+        )
+        .with_details(serde_json::json!({
+            "title": doc.title,
+            "retention_until": doc.retention_until,
+            "deleted_at": doc.deleted_at,
+        }))
+        .build();
+        AuditRepo::create(&mut tx, &audit).await?;
+        tx.commit().await?;
+        tracing::info!(document_id = %doc.id, "document purged successfully");
+    }
+    Ok(())
+}
+
 /// Periodically process jobs from the outbox.
 async fn orphan_cleanup_loop(pool: PgPool, storage: Arc<dyn BlobStore>) {
     let interval = Duration::from_secs(300); // every 5 minutes
@@ -96,10 +166,12 @@ pub async fn run_orphan_cleanup(
 ) -> anyhow::Result<()> {
     // Process any pending cleanup_orphans jobs
     while let Some(job) = JobRepo::claim_next(pool, "cleanup_orphans").await? {
-        tracing::info!(job_id = %job.id, "processing orphan cleanup job");
-        // For now, mark as completed — full S3 listing reconciliation
-        // would require listing the bucket which is expensive.
-        // The blob purge worker handles the main cleanup path.
+        tracing::warn!(
+            job_id = %job.id,
+            "orphan cleanup not yet implemented — skipping job"
+        );
+        // TODO: Implement full S3 listing reconciliation to detect and
+        // remove blobs that exist in storage but have no DB reference.
         JobRepo::complete(pool, job.id).await?;
     }
     Ok(())
@@ -136,6 +208,20 @@ pub async fn run_reconciliation(pool: &PgPool, storage: &Arc<dyn BlobStore>) -> 
                         actual = size,
                         "blob size mismatch detected"
                     );
+                    let mut tx = pool.begin().await?;
+                    let audit = AuditLog::system_builder(
+                        "reconciliation.size_mismatch",
+                        "blob",
+                        blob.id,
+                    )
+                    .with_details(serde_json::json!({
+                        "storage_key": blob.storage_key,
+                        "expected_size": blob.size_bytes,
+                        "actual_size": size,
+                    }))
+                    .build();
+                    AuditRepo::create(&mut tx, &audit).await?;
+                    tx.commit().await?;
                 }
             }
             Ok(None) => {
@@ -144,6 +230,19 @@ pub async fn run_reconciliation(pool: &PgPool, storage: &Arc<dyn BlobStore>) -> 
                     key = %blob.storage_key,
                     "blob missing from storage — DB/storage inconsistency"
                 );
+                let mut tx = pool.begin().await?;
+                let audit = AuditLog::system_builder(
+                    "reconciliation.missing_blob",
+                    "blob",
+                    blob.id,
+                )
+                .with_details(serde_json::json!({
+                    "storage_key": blob.storage_key,
+                    "size_bytes": blob.size_bytes,
+                }))
+                .build();
+                AuditRepo::create(&mut tx, &audit).await?;
+                tx.commit().await?;
             }
             Err(e) => {
                 tracing::warn!(blob_id = %blob.id, "reconciliation check failed: {e:?}");

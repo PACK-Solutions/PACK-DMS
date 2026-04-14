@@ -13,8 +13,20 @@ use sha2::{Digest, Sha256};
 use std::sync::Arc;
 use uuid::Uuid;
 
+use super::acl_guard::enforce_permission;
 use super::error::{ProblemDetails, bad_request, internal, not_found};
 use super::types::VersionResponse;
+use crate::domain::acl_service::Permission;
+
+/// Sanitize a filename for use in Content-Disposition headers.
+///
+/// Strips characters that could break HTTP headers or enable header injection
+/// (double quotes, backslashes, newlines, carriage returns, null bytes).
+fn sanitize_filename(name: &str) -> String {
+    name.chars()
+        .filter(|c| !matches!(c, '"' | '\\' | '\n' | '\r' | '\0'))
+        .collect()
+}
 
 /// Upload a new version of the document content.
 ///
@@ -45,6 +57,7 @@ pub async fn upload_version(
     mut multipart: Multipart,
 ) -> Result<(StatusCode, Json<VersionResponse>), ProblemDetails> {
     auth.require_scope("document:write")?;
+    enforce_permission(&state.pool, &auth, id, Permission::Write).await?;
     let mut doc = DocumentRepo::find_by_id(&state.pool, id)
         .await
         .map_err(internal)?
@@ -79,17 +92,6 @@ pub async fn upload_version(
     hasher.update(&data);
     let hash = hex::encode(hasher.finalize());
 
-    // Determine next version number
-    let vnum = match doc.current_version_id {
-        Some(_) => {
-            let versions = VersionRepo::list_by_document_id(&state.pool, id)
-                .await
-                .map_err(internal)?;
-            versions.first().map(|v| v.version_number).unwrap_or(0) + 1
-        }
-        None => 1,
-    };
-
     let vid = Uuid::new_v4();
     let blob_id = Uuid::new_v4();
 
@@ -102,12 +104,27 @@ pub async fn upload_version(
     // Upload to storage first (before DB commit)
     state
         .storage
-        .put(&storage_key, data.clone(), Some(&mime_type))
+        .put(&storage_key, data, Some(&mime_type))
         .await
         .map_err(internal)?;
 
     // Register blob and version in a single transaction
     let mut tx = state.pool.begin().await.map_err(internal)?;
+
+    // Lock existing version rows to prevent concurrent uploads from getting the same number.
+    // We use a separate locking query because FOR UPDATE cannot be combined with aggregates.
+    sqlx::query("SELECT 1 FROM document_versions WHERE document_id = $1 FOR UPDATE")
+        .bind(id)
+        .fetch_all(&mut *tx)
+        .await
+        .map_err(internal)?;
+    let vnum: i32 = sqlx::query_scalar(
+        "SELECT COALESCE(MAX(version_number), 0) + 1 FROM document_versions WHERE document_id = $1",
+    )
+    .bind(id)
+    .fetch_one(&mut *tx)
+    .await
+    .map_err(internal)?;
 
     let blob = Blob {
         id: blob_id,
@@ -196,6 +213,7 @@ pub async fn list_versions(
     Path(id): Path<Uuid>,
 ) -> Result<Json<Vec<DocumentVersion>>, ProblemDetails> {
     auth.require_scope("document:read")?;
+    enforce_permission(&state.pool, &auth, id, Permission::Read).await?;
     let versions = VersionRepo::list_by_document_id(&state.pool, id)
         .await
         .map_err(internal)?;
@@ -224,6 +242,7 @@ pub async fn download_version(
     Path((id, vid)): Path<(Uuid, Uuid)>,
 ) -> Result<(StatusCode, [(axum::http::header::HeaderName, String); 2], Vec<u8>), ProblemDetails> {
     auth.require_scope("document:read")?;
+    enforce_permission(&state.pool, &auth, id, Permission::Read).await?;
     let v = VersionRepo::find_by_id(&state.pool, vid)
         .await
         .map_err(internal)?
@@ -242,7 +261,10 @@ pub async fn download_version(
         ),
         (
             axum::http::header::CONTENT_DISPOSITION,
-            format!("inline; filename=\"{}\"", v.original_filename),
+            format!(
+                "inline; filename=\"{}\"",
+                sanitize_filename(&v.original_filename)
+            ),
         ),
     ];
     Ok((StatusCode::OK, headers, bytes.to_vec()))
@@ -272,6 +294,7 @@ pub async fn delete_version(
     Path((id, vid)): Path<(Uuid, Uuid)>,
 ) -> Result<StatusCode, ProblemDetails> {
     auth.require_scope("document:write")?;
+    enforce_permission(&state.pool, &auth, id, Permission::Write).await?;
     let doc = DocumentRepo::find_by_id(&state.pool, id)
         .await
         .map_err(internal)?

@@ -34,10 +34,10 @@ pub async fn list_audit(
     JwtAuth(auth): JwtAuth,
     Query(p): Query<SearchQuery>,
 ) -> Result<Json<Vec<AuditLog>>, ProblemDetails> {
-    if !auth.has_role("admin") {
+    if !auth.has_scope("admin") {
         return Err(forbidden("Missing admin role"));
     }
-    let logs = AuditRepo::list_all(&state.pool, p.limit.unwrap_or(100), p.offset.unwrap_or(0))
+    let logs = AuditRepo::list_all(&state.pool, p.effective_limit(), p.effective_offset())
         .await
         .map_err(internal)?;
     Ok(Json(logs))

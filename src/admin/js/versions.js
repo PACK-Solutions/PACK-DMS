@@ -3,23 +3,23 @@
 function renderVersions(docId, versions) {
   if (!versions.length) return '<p class="text-sm text-gray-400">No versions uploaded yet.</p>';
   return `<div class="overflow-hidden rounded-md border border-gray-200">
-    <table class="min-w-full divide-y divide-gray-200 text-sm">
+    <table class="min-w-full table-fixed divide-y divide-gray-200 text-sm">
       <thead class="bg-gray-50"><tr>
-        <th class="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase">Version</th>
-        <th class="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase">Filename</th>
-        <th class="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase">Size</th>
-        <th class="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase">Status</th>
-        <th class="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase">Created</th>
-        <th class="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase">Actions</th>
+        <th class="w-[8%] px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase">Version</th>
+        <th class="w-[28%] px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase">Filename</th>
+        <th class="w-[10%] px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase">Size</th>
+        <th class="w-[10%] px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase">Status</th>
+        <th class="w-[18%] px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase">Created</th>
+        <th class="w-[26%] px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase">Actions</th>
       </tr></thead>
       <tbody class="divide-y divide-gray-200 bg-white">
         ${versions.map(v => `<tr>
           <td class="px-3 py-2 font-medium">v${v.version_number}</td>
-          <td class="px-3 py-2 text-gray-600">${esc(v.original_filename)}</td>
+          <td class="px-3 py-2 text-gray-600 truncate" title="${esc(v.original_filename)}">${esc(v.original_filename)}</td>
           <td class="px-3 py-2 text-gray-500">${formatBytes(v.size_bytes)}</td>
           <td class="px-3 py-2">${statusBadge(v.status)}</td>
           <td class="px-3 py-2 text-gray-500">${fmtDate(v.created_at)}</td>
-          <td class="px-3 py-2 space-x-2">
+          <td class="px-3 py-2 space-x-2 whitespace-nowrap">
             ${isPreviewable(v.mime_type) ? `<button onclick="previewVersion('${docId}','${v.id}','${esc(v.mime_type)}','${esc(v.original_filename)}')" class="text-emerald-600 hover:text-emerald-800 font-medium">Preview</button>` : ''}
             <button onclick="downloadVersion('${docId}','${v.id}','${esc(v.original_filename)}')" class="text-indigo-600 hover:text-indigo-800 font-medium">Download</button>
             ${v.status !== 'deleted' ? `<button onclick="deleteVersion('${docId}','${v.id}')" class="text-red-600 hover:text-red-800 font-medium">Delete</button>` : ''}
@@ -60,9 +60,10 @@ async function submitUploadVersion() {
       try { const b = await resp.json(); msg = b.detail || msg; } catch {}
       throw new Error(msg);
     }
+    const docId = _uploadDocId;
     closeUploadVersionModal();
     toast('Version uploaded');
-    openDocDetail(_uploadDocId);
+    openDocDetail(docId);
   } catch (e) { toast(e.message, 'error'); }
 }
 

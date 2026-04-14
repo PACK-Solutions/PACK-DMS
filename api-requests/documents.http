@@ -124,7 +124,7 @@ Content-Type: application/json
 Authorization: Bearer {{admin_token}}
 
 {
-  "retain_until": "2030-12-31T23:59:59Z"
+  "retention_until": "2030-12-31T23:59:59Z"
 }
 
 ### STEP 14 — Try to delete the document (should be blocked by legal hold)
@@ -152,7 +152,7 @@ Content-Type: application/json
 Authorization: Bearer {{admin_token}}
 
 {
-  "retain_until": "2020-01-01T00:00:00Z"
+  "retention_until": "2020-01-01T00:00:00Z"
 }
 
 ### STEP 17 — Archive the document (active → archived)

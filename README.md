@@ -112,7 +112,10 @@ All endpoints (except documentation) require a valid JWT Bearer token in the `Au
 | `GET` | `/documents` | Search documents. |
 | `GET` | `/documents/{id}` | Get document details by ID. |
 | `PATCH` | `/documents/{id}` | Update document metadata or title. |
-| `POST` | `/documents/{id}/status` | Change document status. |
+| `POST` | `/documents/{id}/status` | Change document status (including soft-delete). |
+| `POST` | `/documents/{id}/restore` | Restore a soft-deleted document. |
+| `POST` | `/documents/{id}/legal-hold` | Set or clear legal hold. |
+| `POST` | `/documents/{id}/retention` | Set or clear retention policy. |
 
 ### Versions
 
@@ -121,6 +124,7 @@ All endpoints (except documentation) require a valid JWT Bearer token in the `Au
 | `POST` | `/documents/{id}/versions` | Upload a new version of a document (multipart/form-data). |
 | `GET` | `/documents/{id}/versions` | List all versions of a document. |
 | `GET` | `/documents/{id}/versions/{vid}/download` | Download a specific version of a document. |
+| `DELETE` | `/documents/{id}/versions/{vid}` | Soft-delete a specific version. |
 
 ### ACL & Audit
 
@@ -157,6 +161,66 @@ By delegating binary storage to an S3-compatible backend, PackDMS benefits from:
 - **Server-side encryption** – data encrypted at rest.
 - **Replication** – cross-site or cross-region redundancy.
 - **Erasure coding** – data durability beyond simple replication.
+
+### Document Lifecycle: Status, Soft-Delete, Purge & Locks
+
+Every document goes through a series of statuses that reflect where it is in its lifecycle:
+
+| Status | Meaning |
+|--------|---------|
+| **Draft** | The document has been created but is not yet published. |
+| **Active** | The document is published and in use. |
+| **Archived** | The document is preserved for long-term storage. |
+| **Deleted** | The document has been soft-deleted and is awaiting purge or restore. |
+| **Purged** | The document has been permanently removed (terminal — cannot be restored). |
+
+#### Status Transitions
+
+Documents move through their lifecycle via `POST /documents/{id}/status`:
+
+```
+Draft  ──▶  Active  ◀──▶  Archived
+  │            │               │
+  └────────────┴───────────────┘
+               │
+               ▼
+           Deleted  ──restore──▶  Draft
+               │
+               ▼  (automatic)
+            Purged
+```
+
+- **Draft → Active** — publish the document for use.
+- **Active → Archived** — move the document to long-term storage.
+- **Archived → Active** — reactivate an archived document.
+- **Draft / Active / Archived → Deleted** — soft-delete the document (blocked if under legal hold or active retention).
+- **Deleted → Draft** — restore a soft-deleted document via `POST /documents/{id}/restore`.
+
+#### Soft-Delete
+
+Soft-deleting a document does **not** remove any data. The document and all its versions remain in the database and storage. A soft-deleted document can be restored at any time — as long as it has not yet been purged.
+
+#### Automatic Purge
+
+A background worker runs periodically and permanently purges documents that meet **either** of these conditions (provided the document is **not** under legal hold):
+
+1. **Soft-deleted documents** whose retention date has expired or was never set.
+2. **Any document** (even if still active, draft, or archived) whose retention date has passed.
+
+When a document is purged:
+- All associated versions are removed.
+- The document reaches the **purged** status, which is terminal — it cannot be restored.
+- An audit log entry is recorded for traceability.
+
+#### Legal Hold
+
+Setting legal hold on a document (via `POST /documents/{id}/legal-hold`) acts as an **absolute protection**: the document **cannot** be soft-deleted by users and is **excluded from automatic purge** — regardless of its retention date or current status. Legal hold must be explicitly lifted before the document can be deleted or purged. Only administrators can manage legal hold.
+
+#### Retention Policy
+
+A retention date (set via `POST /documents/{id}/retention`) defines the earliest point at which a document may be deleted or purged. While the retention period is active, soft-deletion is blocked.
+
+**Important:** once the retention date passes, the document becomes eligible for automatic purge — even if it was never soft-deleted. To prevent this, either clear the retention date before it expires or place the document under legal hold. Only administrators can manage retention policies.
 
 ### Legal Hold, Retention & Versioning Strategy
 
@@ -274,6 +338,7 @@ PackDMS runs three background workers (spawned as Tokio tasks at startup) to kee
 | Worker | Interval | Purpose |
 |--------|----------|---------|
 | **Blob purge** | 30 s | Deletes objects from RustFS for blobs marked `pending_deletion` with `ref_count = 0`. |
+| **Document purge** | 60 s | Purges documents whose retention period has expired or that are soft-deleted past retention (see below). |
 | **Orphan cleanup** | 5 min | Processes `cleanup_orphans` jobs from the `job_outbox` table. |
 | **Reconciliation** | 1 h | Verifies that active blobs recorded in the database actually exist in storage. |
 

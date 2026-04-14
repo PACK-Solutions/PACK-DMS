@@ -18,20 +18,6 @@ pub enum DocumentStatus {
     Deleted,
 }
 
-impl DocumentStatus {
-    /// Returns `true` if transitioning from `self` to `target` is allowed.
-    pub fn can_transition_to(&self, target: &DocumentStatus) -> bool {
-        matches!(
-            (self, target),
-            (DocumentStatus::Draft, DocumentStatus::Active)
-                | (DocumentStatus::Active, DocumentStatus::Archived)
-                | (DocumentStatus::Archived, DocumentStatus::Active)
-                | (DocumentStatus::Active, DocumentStatus::Deleted)
-                | (DocumentStatus::Draft, DocumentStatus::Deleted)
-                | (DocumentStatus::Archived, DocumentStatus::Deleted)
-        )
-    }
-}
 
 /// Represents a document's metadata and its current state.
 #[derive(Debug, Clone, Serialize, Deserialize, ToSchema, FromRow)]
@@ -63,6 +49,8 @@ pub struct Document {
     pub deleted_by: Option<Uuid>,
     /// Timestamp when the document was archived.
     pub archived_at: Option<DateTime<Utc>>,
+    /// Optional parent document ID for folder/collection hierarchy.
+    pub parent_id: Option<Uuid>,
 }
 
 impl Document {
@@ -253,7 +241,7 @@ pub struct AuditLog {
 
 /// Builder for constructing `AuditLog` entries with sensible defaults.
 pub struct AuditLogBuilder {
-    actor_id: Uuid,
+    actor_id: Option<Uuid>,
     action: String,
     resource_type: String,
     resource_id: Uuid,
@@ -279,7 +267,7 @@ impl AuditLogBuilder {
         AuditLog {
             id: Uuid::new_v4(),
             ts: Utc::now(),
-            actor_id: Some(self.actor_id),
+            actor_id: self.actor_id,
             action: self.action,
             resource_type: self.resource_type,
             resource_id: self.resource_id,
@@ -302,7 +290,23 @@ impl AuditLog {
         resource_id: Uuid,
     ) -> AuditLogBuilder {
         AuditLogBuilder {
-            actor_id,
+            actor_id: Some(actor_id),
+            action: action.into(),
+            resource_type: resource_type.into(),
+            resource_id,
+            version_id: None,
+            details: serde_json::json!({}),
+        }
+    }
+
+    /// Start building an audit log entry for a system-initiated action (no human actor).
+    pub fn system_builder(
+        action: &str,
+        resource_type: &str,
+        resource_id: Uuid,
+    ) -> AuditLogBuilder {
+        AuditLogBuilder {
+            actor_id: None,
             action: action.into(),
             resource_type: resource_type.into(),
             resource_id,

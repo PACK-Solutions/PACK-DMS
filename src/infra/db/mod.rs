@@ -9,8 +9,8 @@ pub struct DocumentRepo;
 impl DocumentRepo {
     pub async fn create(tx: &mut Transaction<'_, Postgres>, doc: &Document) -> sqlx::Result<()> {
         sqlx::query(
-            "INSERT INTO documents (id, title, status, owner_id, current_version_id, legal_hold, retention_until, metadata, created_at, updated_at, deleted_at, deleted_by, archived_at) \
-             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)"
+            "INSERT INTO documents (id, title, status, owner_id, current_version_id, legal_hold, retention_until, metadata, created_at, updated_at, deleted_at, deleted_by, archived_at, parent_id) \
+             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)"
         )
         .bind(doc.id)
         .bind(&doc.title)
@@ -25,6 +25,7 @@ impl DocumentRepo {
         .bind(doc.deleted_at)
         .bind(doc.deleted_by)
         .bind(doc.archived_at)
+        .bind(doc.parent_id)
         .execute(&mut **tx)
         .await?;
         Ok(())
@@ -32,7 +33,7 @@ impl DocumentRepo {
 
     pub async fn find_by_id(pool: &PgPool, id: Uuid) -> sqlx::Result<Option<Document>> {
         sqlx::query_as::<_, Document>(
-            "SELECT id, title, status, owner_id, current_version_id, legal_hold, retention_until, metadata, created_at, updated_at, deleted_at, deleted_by, archived_at FROM documents WHERE id = $1"
+            "SELECT id, title, status, owner_id, current_version_id, legal_hold, retention_until, metadata, created_at, updated_at, deleted_at, deleted_by, archived_at, parent_id FROM documents WHERE id = $1"
         )
         .bind(id)
         .fetch_optional(pool)
@@ -41,7 +42,7 @@ impl DocumentRepo {
 
     pub async fn update(tx: &mut Transaction<'_, Postgres>, doc: &Document) -> sqlx::Result<()> {
         sqlx::query(
-            "UPDATE documents SET title = $2, status = $3, owner_id = $4, current_version_id = $5, legal_hold = $6, retention_until = $7, metadata = $8, updated_at = $9, deleted_at = $10, deleted_by = $11, archived_at = $12 WHERE id = $1"
+            "UPDATE documents SET title = $2, status = $3, owner_id = $4, current_version_id = $5, legal_hold = $6, retention_until = $7, metadata = $8, updated_at = $9, deleted_at = $10, deleted_by = $11, archived_at = $12, parent_id = $13 WHERE id = $1"
         )
         .bind(doc.id)
         .bind(&doc.title)
@@ -55,6 +56,7 @@ impl DocumentRepo {
         .bind(doc.deleted_at)
         .bind(doc.deleted_by)
         .bind(doc.archived_at)
+        .bind(doc.parent_id)
         .execute(&mut **tx)
         .await?;
         Ok(())
@@ -62,7 +64,7 @@ impl DocumentRepo {
 
     pub async fn list(pool: &PgPool, limit: i64, offset: i64) -> sqlx::Result<Vec<Document>> {
         sqlx::query_as::<_, Document>(
-            "SELECT id, title, status, owner_id, current_version_id, legal_hold, retention_until, metadata, created_at, updated_at, deleted_at, deleted_by, archived_at FROM documents WHERE deleted_at IS NULL ORDER BY updated_at DESC LIMIT $1 OFFSET $2"
+            "SELECT id, title, status, owner_id, current_version_id, legal_hold, retention_until, metadata, created_at, updated_at, deleted_at, deleted_by, archived_at, parent_id FROM documents WHERE deleted_at IS NULL ORDER BY updated_at DESC LIMIT $1 OFFSET $2"
         )
         .bind(limit)
         .bind(offset)
@@ -70,13 +72,31 @@ impl DocumentRepo {
         .await
     }
 
-    /// List documents that are soft-deleted and eligible for purge.
+    /// Mark a document as purged (final removal after retention expiry).
+    pub async fn mark_purged(
+        tx: &mut Transaction<'_, Postgres>,
+        id: Uuid,
+    ) -> sqlx::Result<()> {
+        sqlx::query(
+            "UPDATE documents SET status = 'purged', updated_at = NOW() WHERE id = $1"
+        )
+        .bind(id)
+        .execute(&mut **tx)
+        .await?;
+        Ok(())
+    }
+
+    /// List documents eligible for purge: either soft-deleted (with expired or no retention),
+    /// or any status with an expired `retention_until`. Legal-held documents are always excluded.
     pub async fn list_pending_purge(pool: &PgPool, limit: i64) -> sqlx::Result<Vec<Document>> {
         sqlx::query_as::<_, Document>(
-            "SELECT id, title, status, owner_id, current_version_id, legal_hold, retention_until, metadata, created_at, updated_at, deleted_at, deleted_by, archived_at \
-             FROM documents WHERE status = 'deleted' AND deleted_at IS NOT NULL AND legal_hold = false \
-             AND (retention_until IS NULL OR retention_until < NOW()) \
-             ORDER BY deleted_at ASC LIMIT $1"
+            "SELECT id, title, status, owner_id, current_version_id, legal_hold, retention_until, metadata, created_at, updated_at, deleted_at, deleted_by, archived_at, parent_id \
+             FROM documents WHERE status != 'purged' AND legal_hold = false \
+             AND (\
+               (status = 'deleted' AND deleted_at IS NOT NULL AND (retention_until IS NULL OR retention_until < NOW())) \
+               OR (retention_until IS NOT NULL AND retention_until < NOW())\
+             ) \
+             ORDER BY COALESCE(deleted_at, retention_until, created_at) ASC LIMIT $1"
         )
         .bind(limit)
         .fetch_all(pool)
@@ -169,16 +189,6 @@ impl VersionRepo {
         Ok(())
     }
 
-    /// Restore a soft-deleted version.
-    pub async fn restore(tx: &mut Transaction<'_, Postgres>, id: Uuid) -> sqlx::Result<()> {
-        sqlx::query(
-            "UPDATE document_versions SET status = 'active', deleted_at = NULL, deleted_by = NULL WHERE id = $1"
-        )
-        .bind(id)
-        .execute(&mut **tx)
-        .await?;
-        Ok(())
-    }
 }
 
 pub struct BlobRepo;
@@ -431,12 +441,4 @@ impl UserRepo {
         .await
     }
 
-    pub async fn find_by_email(pool: &PgPool, email: &str) -> sqlx::Result<Option<User>> {
-        sqlx::query_as::<_, User>(
-            "SELECT id, email, roles, status, created_at FROM users WHERE email = $1",
-        )
-        .bind(email)
-        .fetch_optional(pool)
-        .await
-    }
 }
