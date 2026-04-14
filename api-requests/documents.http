@@ -191,33 +191,62 @@ Authorization: Bearer {{auth_token}}
 GET http://{{host}}/documents/{{document_id}}/acl
 Authorization: Bearer {{auth_token}}
 
-### STEP 23 — Update ACL rules
+### STEP 23 — Replace ACL rules (PUT — full replacement)
 PUT http://{{host}}/documents/{{document_id}}/acl
 Content-Type: application/json
-Authorization: Bearer {{auth_token}}
+Authorization: Bearer {{admin_token}}
 
 [
   {
-    "document_id": "{{document_id}}",
-    "grantee_type": "user",
-    "grantee_id": "00000000-0000-0000-0000-000000000001",
-    "permission": "read",
-    "created_at": "2026-04-01T10:00:00Z"
+    "principal_type": "user",
+    "principal_id": "00000000-0000-0000-0000-000000000001",
+    "permission": "read"
   },
   {
-    "document_id": "{{document_id}}",
-    "grantee_type": "user",
-    "grantee_id": "00000000-0000-0000-0000-000000000002",
-    "permission": "write",
-    "created_at": "2026-04-01T10:00:00Z"
+    "principal_type": "user",
+    "principal_id": "00000000-0000-0000-0000-000000000002",
+    "permission": "write"
+  },
+  {
+    "principal_type": "role",
+    "role": "auditor",
+    "permission": "read"
   }
 ]
 
-### STEP 24 — View audit logs (Admin only)
+### STEP 24 — Verify ACL after replacement
+GET http://{{host}}/documents/{{document_id}}/acl
+Authorization: Bearer {{auth_token}}
+
+### STEP 25 — Patch ACL (granular add/remove operations)
+PATCH http://{{host}}/documents/{{document_id}}/acl
+Content-Type: application/json
+Authorization: Bearer {{admin_token}}
+
+[
+  {
+    "op": "add",
+    "principal_type": "user",
+    "principal_id": "00000000-0000-0000-0000-000000000003",
+    "permission": "read"
+  },
+  {
+    "op": "remove",
+    "principal_type": "role",
+    "role": "auditor",
+    "permission": "read"
+  }
+]
+
+### STEP 26 — Verify ACL after patch
+GET http://{{host}}/documents/{{document_id}}/acl
+Authorization: Bearer {{auth_token}}
+
+### STEP 27 — View audit logs (Admin only)
 GET http://{{host}}/audit?limit=50
 Authorization: Bearer {{admin_token}}
 
-### STEP 25 — Final soft-delete before ending the workflow
+### STEP 28 — Final soft-delete before ending the workflow
 POST http://{{host}}/documents/{{document_id}}/status
 Content-Type: application/json
 Authorization: Bearer {{auth_token}}

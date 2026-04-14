@@ -18,7 +18,6 @@ pub enum DocumentStatus {
     Deleted,
 }
 
-
 /// Represents a document's metadata and its current state.
 #[derive(Debug, Clone, Serialize, Deserialize, ToSchema, FromRow)]
 pub struct Document {
@@ -300,11 +299,7 @@ impl AuditLog {
     }
 
     /// Start building an audit log entry for a system-initiated action (no human actor).
-    pub fn system_builder(
-        action: &str,
-        resource_type: &str,
-        resource_id: Uuid,
-    ) -> AuditLogBuilder {
+    pub fn system_builder(action: &str, resource_type: &str, resource_id: Uuid) -> AuditLogBuilder {
         AuditLogBuilder {
             actor_id: None,
             action: action.into(),

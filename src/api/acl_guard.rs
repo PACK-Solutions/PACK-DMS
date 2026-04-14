@@ -16,13 +16,11 @@ pub async fn enforce_permission(
     required: Permission,
 ) -> Result<(), ProblemDetails> {
     // Fetch user roles from the database.
-    let roles: Vec<String> = sqlx::query_scalar(
-        "SELECT unnest(roles) FROM users WHERE id = $1",
-    )
-    .bind(auth.user_id)
-    .fetch_all(pool)
-    .await
-    .map_err(internal)?;
+    let roles: Vec<String> = sqlx::query_scalar("SELECT unnest(roles) FROM users WHERE id = $1")
+        .bind(auth.user_id)
+        .fetch_all(pool)
+        .await
+        .map_err(internal)?;
 
     let effective = AclService::effective_permissions(pool, auth.user_id, &roles, document_id)
         .await

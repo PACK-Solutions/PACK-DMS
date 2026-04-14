@@ -110,16 +110,11 @@ pub async fn run_document_purge(pool: &PgPool) -> anyhow::Result<()> {
         let mut tx = pool.begin().await?;
 
         // Soft-delete associated versions and decrement blob ref_counts
-        let versions =
-            crate::infra::db::VersionRepo::list_by_document_id(pool, doc.id).await?;
+        let versions = crate::infra::db::VersionRepo::list_by_document_id(pool, doc.id).await?;
         for version in &versions {
             if version.status != "deleted" {
-                crate::infra::db::VersionRepo::soft_delete(
-                    &mut tx,
-                    version.id,
-                    doc.owner_id,
-                )
-                .await?;
+                crate::infra::db::VersionRepo::soft_delete(&mut tx, version.id, doc.owner_id)
+                    .await?;
                 // Only decrement for versions not already deleted — already-deleted
                 // versions had their blob ref_count decremented at delete time.
                 if let Some(blob_id) = version.blob_id {
@@ -129,17 +124,13 @@ pub async fn run_document_purge(pool: &PgPool) -> anyhow::Result<()> {
         }
 
         DocumentRepo::mark_purged(&mut tx, doc.id).await?;
-        let audit = AuditLog::system_builder(
-            "document.retention_purge",
-            "document",
-            doc.id,
-        )
-        .with_details(serde_json::json!({
-            "title": doc.title,
-            "retention_until": doc.retention_until,
-            "deleted_at": doc.deleted_at,
-        }))
-        .build();
+        let audit = AuditLog::system_builder("document.retention_purge", "document", doc.id)
+            .with_details(serde_json::json!({
+                "title": doc.title,
+                "retention_until": doc.retention_until,
+                "deleted_at": doc.deleted_at,
+            }))
+            .build();
         AuditRepo::create(&mut tx, &audit).await?;
         tx.commit().await?;
         tracing::info!(document_id = %doc.id, "document purged successfully");
@@ -209,17 +200,14 @@ pub async fn run_reconciliation(pool: &PgPool, storage: &Arc<dyn BlobStore>) -> 
                         "blob size mismatch detected"
                     );
                     let mut tx = pool.begin().await?;
-                    let audit = AuditLog::system_builder(
-                        "reconciliation.size_mismatch",
-                        "blob",
-                        blob.id,
-                    )
-                    .with_details(serde_json::json!({
-                        "storage_key": blob.storage_key,
-                        "expected_size": blob.size_bytes,
-                        "actual_size": size,
-                    }))
-                    .build();
+                    let audit =
+                        AuditLog::system_builder("reconciliation.size_mismatch", "blob", blob.id)
+                            .with_details(serde_json::json!({
+                                "storage_key": blob.storage_key,
+                                "expected_size": blob.size_bytes,
+                                "actual_size": size,
+                            }))
+                            .build();
                     AuditRepo::create(&mut tx, &audit).await?;
                     tx.commit().await?;
                 }
@@ -231,16 +219,13 @@ pub async fn run_reconciliation(pool: &PgPool, storage: &Arc<dyn BlobStore>) -> 
                     "blob missing from storage — DB/storage inconsistency"
                 );
                 let mut tx = pool.begin().await?;
-                let audit = AuditLog::system_builder(
-                    "reconciliation.missing_blob",
-                    "blob",
-                    blob.id,
-                )
-                .with_details(serde_json::json!({
-                    "storage_key": blob.storage_key,
-                    "size_bytes": blob.size_bytes,
-                }))
-                .build();
+                let audit =
+                    AuditLog::system_builder("reconciliation.missing_blob", "blob", blob.id)
+                        .with_details(serde_json::json!({
+                            "storage_key": blob.storage_key,
+                            "size_bytes": blob.size_bytes,
+                        }))
+                        .build();
                 AuditRepo::create(&mut tx, &audit).await?;
                 tx.commit().await?;
             }

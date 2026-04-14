@@ -26,7 +26,8 @@ CREATE TABLE IF NOT EXISTS documents (
     updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     deleted_at TIMESTAMPTZ,
     deleted_by UUID REFERENCES users(id),
-    archived_at TIMESTAMPTZ
+    archived_at TIMESTAMPTZ,
+    parent_id UUID REFERENCES documents(id)
 );
 
 -- Blob registry: physical objects in S3, decoupled from versions
@@ -112,6 +113,7 @@ CREATE INDEX IF NOT EXISTS idx_documents_status_updated ON documents(status, upd
 CREATE INDEX IF NOT EXISTS idx_documents_owner_updated ON documents(owner_id, updated_at);
 CREATE INDEX IF NOT EXISTS idx_documents_metadata ON documents USING GIN (metadata);
 CREATE INDEX IF NOT EXISTS idx_documents_deleted_at ON documents(deleted_at) WHERE deleted_at IS NOT NULL;
+CREATE INDEX IF NOT EXISTS idx_documents_parent_id ON documents(parent_id) WHERE parent_id IS NOT NULL;
 
 CREATE INDEX IF NOT EXISTS idx_document_versions_status ON document_versions(status);
 

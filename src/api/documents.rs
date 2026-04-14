@@ -1,5 +1,5 @@
-use crate::domain::models::*;
 use crate::domain::acl_service::{AclService, Permission};
+use crate::domain::models::*;
 use crate::infra::{
     auth::{AppState, JwtAuth},
     db::{AclRepo, AuditRepo, DocumentRepo},
@@ -16,8 +16,8 @@ use uuid::Uuid;
 use super::acl_guard::enforce_permission;
 use super::error::{ProblemDetails, bad_request, forbidden, internal, not_found};
 use super::types::{
-    CreateDocumentRequest, DocumentResponse, LegalHoldRequest, PatchDocumentRequest,
-    RetentionRequest, SearchQuery, StatusChangeRequest, MAX_TITLE_LENGTH,
+    CreateDocumentRequest, DocumentResponse, LegalHoldRequest, MAX_TITLE_LENGTH,
+    PatchDocumentRequest, RetentionRequest, SearchQuery, StatusChangeRequest,
 };
 
 /// Validate that a document title is non-empty and within the allowed length.
@@ -168,13 +168,12 @@ pub async fn search_documents(
             .map_err(internal)?
     };
     // Filter results to only documents the caller has at least read permission on.
-    let user_roles: Vec<String> = sqlx::query_scalar(
-        "SELECT unnest(roles) FROM users WHERE id = $1",
-    )
-    .bind(auth.user_id)
-    .fetch_all(&state.pool)
-    .await
-    .map_err(internal)?;
+    let user_roles: Vec<String> =
+        sqlx::query_scalar("SELECT unnest(roles) FROM users WHERE id = $1")
+            .bind(auth.user_id)
+            .fetch_all(&state.pool)
+            .await
+            .map_err(internal)?;
     let doc_ids: Vec<Uuid> = rows.iter().map(|d| d.id).collect();
     let readable = AclService::filter_readable(&state.pool, auth.user_id, &user_roles, &doc_ids)
         .await

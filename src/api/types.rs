@@ -125,9 +125,7 @@ pub struct SearchQuery {
 impl SearchQuery {
     /// Return the effective limit, clamped to `[1, MAX_LIMIT]`.
     pub fn effective_limit(&self) -> i64 {
-        self.limit
-            .unwrap_or(DEFAULT_LIMIT)
-            .clamp(1, MAX_LIMIT)
+        self.limit.unwrap_or(DEFAULT_LIMIT).clamp(1, MAX_LIMIT)
     }
 
     /// Return the effective offset, floored at 0.

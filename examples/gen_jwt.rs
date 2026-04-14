@@ -23,7 +23,13 @@ fn main() -> anyhow::Result<()> {
     let issuer =
         std::env::var("JWT_ISSUER").unwrap_or_else(|_| "https://example.com/auth".to_string());
     let kid = "default-kid";
-    let ttl_secs: usize = 3600;
+
+    // Default: 10 years (~infinite for dev purposes).
+    // Override with TTL_SECS env var, e.g. TTL_SECS=3600 for 1 hour.
+    let ttl_secs: usize = std::env::var("TTL_SECS")
+        .ok()
+        .and_then(|v| v.parse().ok())
+        .unwrap_or(10 * 365 * 24 * 3600);
 
     let exp = (std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)?
@@ -62,7 +68,8 @@ fn main() -> anyhow::Result<()> {
         &EncodingKey::from_rsa_pem(private_pem.as_bytes())?,
     )?;
 
-    println!("Tokens valid for {ttl_secs} seconds (1 hour)\n");
+    let days = ttl_secs / 86400;
+    println!("Tokens valid for {ttl_secs} seconds (~{days} days)\n");
     println!("=== User Token (user@example.com, scopes: document:read document:write) ===");
     println!("{user_token}\n");
     println!("=== Admin Token (admin@example.com, scopes: document:read document:write admin) ===");

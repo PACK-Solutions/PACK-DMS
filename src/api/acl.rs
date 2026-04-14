@@ -88,24 +88,56 @@ pub async fn put_acl(
 }
 
 /// A single ACL patch operation (add or remove an entry).
+///
+/// Each entry targets either a **user** or a **role** and grants/revokes a permission.
+///
+/// ### Grant read access to a specific user
+/// ```json
+/// { "op": "add", "principal_type": "user", "principal_id": "<user-uuid>", "permission": "read" }
+/// ```
+///
+/// ### Grant write access to a role
+/// ```json
+/// { "op": "add", "principal_type": "role", "role": "editors", "permission": "write" }
+/// ```
+///
+/// ### Revoke admin access from a user
+/// ```json
+/// { "op": "remove", "principal_type": "user", "principal_id": "<user-uuid>", "permission": "admin" }
+/// ```
+///
+/// ### Rules
+/// - When `principal_type` is `"user"`, you **must** provide `principal_id` (the user's UUID).
+/// - When `principal_type` is `"role"`, you **must** provide `role` (the role name, e.g. `"editors"`, `"viewers"`).
+/// - `op` must be either `"add"` or `"remove"`.
+/// - `permission` must be one of `"read"`, `"write"`, or `"admin"`.
 #[derive(Debug, Serialize, Deserialize, ToSchema)]
 pub struct AclPatchEntry {
-    /// Operation: "add" or "remove".
+    /// Operation to perform: `"add"` to grant or `"remove"` to revoke an ACL entry.
     pub op: String,
-    /// Type of principal: "user" or "role".
+    /// Type of principal targeted by this operation: `"user"` for a specific user, or `"role"` for a named role.
     pub principal_type: String,
-    /// User ID (required when principal_type is "user").
+    /// UUID of the user. **Required** when `principal_type` is `"user"`, must be omitted (or null) when `principal_type` is `"role"`.
     pub principal_id: Option<Uuid>,
-    /// Role name (required when principal_type is "role").
+    /// Name of the role (e.g. `"editors"`, `"viewers"`). **Required** when `principal_type` is `"role"`, must be omitted (or null) when `principal_type` is `"user"`.
     pub role: Option<String>,
-    /// Permission to grant or revoke: "read", "write", or "admin".
+    /// Permission level to grant or revoke: `"read"`, `"write"`, or `"admin"`.
     pub permission: String,
 }
 
 /// Granular ACL modifications for a document.
 ///
 /// Allows adding or removing individual ACL entries without replacing the entire list.
-/// Only users with admin permission on the document can patch ACL rules.
+/// Only users with **admin** permission on the document can patch ACL rules.
+///
+/// The request body is a JSON array of [`AclPatchEntry`] operations. Example:
+/// ```json
+/// [
+///   { "op": "add", "principal_type": "user", "principal_id": "550e8400-e29b-41d4-a716-446655440000", "permission": "read" },
+///   { "op": "add", "principal_type": "role", "role": "editors", "permission": "write" },
+///   { "op": "remove", "principal_type": "user", "principal_id": "6ba7b810-9dad-11d1-80b4-00c04fd430c8", "permission": "admin" }
+/// ]
+/// ```
 #[utoipa::path(
     patch,
     path = "/documents/{id}/acl",

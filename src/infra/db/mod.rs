@@ -73,16 +73,11 @@ impl DocumentRepo {
     }
 
     /// Mark a document as purged (final removal after retention expiry).
-    pub async fn mark_purged(
-        tx: &mut Transaction<'_, Postgres>,
-        id: Uuid,
-    ) -> sqlx::Result<()> {
-        sqlx::query(
-            "UPDATE documents SET status = 'purged', updated_at = NOW() WHERE id = $1"
-        )
-        .bind(id)
-        .execute(&mut **tx)
-        .await?;
+    pub async fn mark_purged(tx: &mut Transaction<'_, Postgres>, id: Uuid) -> sqlx::Result<()> {
+        sqlx::query("UPDATE documents SET status = 'purged', updated_at = NOW() WHERE id = $1")
+            .bind(id)
+            .execute(&mut **tx)
+            .await?;
         Ok(())
     }
 
@@ -188,7 +183,6 @@ impl VersionRepo {
         .await?;
         Ok(())
     }
-
 }
 
 pub struct BlobRepo;
@@ -440,5 +434,4 @@ impl UserRepo {
         .fetch_optional(pool)
         .await
     }
-
 }

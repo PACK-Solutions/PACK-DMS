@@ -49,7 +49,6 @@ impl S3BlobStore {
             bucket: bucket.to_owned(),
         })
     }
-
 }
 
 #[async_trait]

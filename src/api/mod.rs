@@ -129,7 +129,10 @@ pub fn router(state: Arc<AppState>) -> Router {
             "/documents/{id}/versions/{vid}",
             delete(versions::delete_version),
         )
-        .route("/documents/{id}/acl", get(acl::get_acl).put(acl::put_acl).patch(acl::patch_acl))
+        .route(
+            "/documents/{id}/acl",
+            get(acl::get_acl).put(acl::put_acl).patch(acl::patch_acl),
+        )
         .route("/audit", get(audit::list_audit))
         .with_state(state)
 }

@@ -45,10 +45,7 @@ impl AuthContext {
     }
 
     /// Returns `Ok(())` if the user has the given scope, or a `ProblemDetails` error.
-    pub fn require_scope(
-        &self,
-        scope: &str,
-    ) -> Result<(), crate::api::error::ProblemDetails> {
+    pub fn require_scope(&self, scope: &str) -> Result<(), crate::api::error::ProblemDetails> {
         if self.has_scope(scope) {
             Ok(())
         } else {

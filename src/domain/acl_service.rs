@@ -64,12 +64,11 @@ impl AclService {
         document_id: Uuid,
     ) -> Result<EffectivePermissions, sqlx::Error> {
         // Check ownership first.
-        let owner_id: Option<Uuid> = sqlx::query_scalar(
-            "SELECT owner_id FROM documents WHERE id = $1",
-        )
-        .bind(document_id)
-        .fetch_optional(pool)
-        .await?;
+        let owner_id: Option<Uuid> =
+            sqlx::query_scalar("SELECT owner_id FROM documents WHERE id = $1")
+                .bind(document_id)
+                .fetch_optional(pool)
+                .await?;
 
         if let Some(oid) = owner_id {
             if oid == user_id {
@@ -162,13 +161,12 @@ impl AclService {
         }
 
         // Owner documents are always readable.
-        let owned: Vec<(Uuid,)> = sqlx::query_as(
-            "SELECT id FROM documents WHERE id = ANY($1) AND owner_id = $2",
-        )
-        .bind(document_ids)
-        .bind(user_id)
-        .fetch_all(pool)
-        .await?;
+        let owned: Vec<(Uuid,)> =
+            sqlx::query_as("SELECT id FROM documents WHERE id = ANY($1) AND owner_id = $2")
+                .bind(document_ids)
+                .bind(user_id)
+                .fetch_all(pool)
+                .await?;
 
         let mut readable: HashSet<Uuid> = owned.into_iter().map(|(id,)| id).collect();
 
@@ -192,8 +190,7 @@ impl AclService {
             if readable.contains(&doc_id) {
                 continue;
             }
-            let perms =
-                Self::resolve_with_inheritance(pool, user_id, user_roles, doc_id).await?;
+            let perms = Self::resolve_with_inheritance(pool, user_id, user_roles, doc_id).await?;
             if perms.has(Permission::Read) {
                 readable.insert(doc_id);
             }
