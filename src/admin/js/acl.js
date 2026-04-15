@@ -2,7 +2,7 @@
 
 function renderAcl(docId, acl) {
   if (!acl.length) return '<p class="text-sm text-gray-400">No ACL rules defined.</p>';
-  return `<div class="overflow-hidden rounded-md border border-gray-200">
+  return `<div class="overflow-x-auto rounded-md border border-gray-200">
     <table class="min-w-full divide-y divide-gray-200 text-sm">
       <thead class="bg-gray-50"><tr>
         <th class="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase">Type</th>
@@ -12,7 +12,7 @@ function renderAcl(docId, acl) {
       <tbody class="divide-y divide-gray-200 bg-white">
         ${acl.map(a => `<tr>
           <td class="px-3 py-2">${esc(a.principal_type)}</td>
-          <td class="px-3 py-2 font-mono text-gray-600">${a.principal_id ? shortId(a.principal_id) : esc(a.role || '—')}</td>
+          <td class="px-3 py-2 font-mono text-gray-600 text-xs">${a.principal_id ? esc(a.principal_id) : esc(a.role || '—')}</td>
           <td class="px-3 py-2">${esc(a.permission)}</td>
         </tr>`).join('')}
       </tbody>

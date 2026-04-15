@@ -2,7 +2,7 @@
 
 function renderVersions(docId, versions) {
   if (!versions.length) return '<p class="text-sm text-gray-400">No versions uploaded yet.</p>';
-  return `<div class="overflow-hidden rounded-md border border-gray-200">
+  return `<div class="overflow-x-auto rounded-md border border-gray-200">
     <table class="min-w-full table-fixed divide-y divide-gray-200 text-sm">
       <thead class="bg-gray-50"><tr>
         <th class="w-[8%] px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase">Version</th>

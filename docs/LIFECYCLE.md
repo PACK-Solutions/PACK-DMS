@@ -21,7 +21,7 @@ Every document has a `status` field that tracks its current lifecycle stage.
 ## 2. Allowed Transitions
 
 ```
-         ┌──────────┐
+         ┌───────────┐
          │  draft    │
          └────┬──┬───┘
               │  │
@@ -31,7 +31,7 @@ Every document has a `status` field that tracks its current lifecycle stage.
          │ active │◄──────►│archived │
          └───┬────┘restore └────┬────┘
              │    archive       │
-        delete│            delete│
+       delete│            delete│
              ▼                  ▼
          ┌────────────────────────┐
          │        deleted         │

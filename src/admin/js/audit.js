@@ -10,11 +10,11 @@ async function loadAudit() {
       return;
     }
     tbody.innerHTML = logs.map(l => `<tr class="hover:bg-gray-50">
-      <td class="px-4 py-3 text-sm text-gray-500">${fmtDate(l.created_at)}</td>
+      <td class="px-4 py-3 text-sm text-gray-500 whitespace-nowrap">${fmtDate(l.ts)}</td>
       <td class="px-4 py-3 text-sm font-medium">${esc(l.action)}</td>
-      <td class="px-4 py-3 text-sm text-gray-600">${esc(l.resource_type)}/${shortId(l.resource_id)}</td>
-      <td class="px-4 py-3 text-sm text-gray-500 font-mono">${shortId(l.actor_id)}</td>
-      <td class="px-4 py-3 text-sm text-gray-500 font-mono text-xs">${l.details ? esc(JSON.stringify(l.details)) : '—'}</td>
+      <td class="px-4 py-3 text-sm text-gray-600 font-mono break-all">${esc(l.resource_type)}/${esc(l.resource_id)}</td>
+      <td class="px-4 py-3 text-sm text-gray-500 font-mono break-all">${l.actor_id ? esc(l.actor_id) : '—'}</td>
+      <td class="px-4 py-3 text-sm text-gray-500 font-mono text-xs"><pre class="whitespace-pre-wrap">${l.details && Object.keys(l.details).length ? esc(JSON.stringify(l.details, null, 2)) : '—'}</pre></td>
     </tr>`).join('');
   } catch (e) { toast(e.message, 'error'); }
 }
