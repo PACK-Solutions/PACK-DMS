@@ -15,7 +15,53 @@ use utoipa::ToSchema;
 use uuid::Uuid;
 
 use super::acl_guard::enforce_permission;
-use super::error::{ProblemDetails, internal};
+use super::error::{ProblemDetails, bad_request, internal};
+
+/// Validate the four fields of an ACL entry for shape consistency.
+///
+/// `principal_type` must be `"user"` (with `principal_id`, no `role`) or
+/// `"role"` (with `role`, no `principal_id`). `permission` must be one of
+/// `"read"`, `"write"`, `"admin"`.
+fn validate_acl_entry(
+    principal_type: &str,
+    principal_id: Option<Uuid>,
+    role: Option<&str>,
+    permission: &str,
+) -> Result<(), ProblemDetails> {
+    if !matches!(permission, "read" | "write" | "admin") {
+        return Err(bad_request(format!(
+            "invalid permission '{permission}', expected 'read', 'write', or 'admin'"
+        )));
+    }
+    match principal_type {
+        "user" => {
+            if principal_id.is_none() {
+                return Err(bad_request("principal_type 'user' requires a principal_id"));
+            }
+            if role.is_some() {
+                return Err(bad_request("principal_type 'user' must not include a role"));
+            }
+        }
+        "role" => {
+            if role.map(str::trim).is_none_or(str::is_empty) {
+                return Err(bad_request(
+                    "principal_type 'role' requires a non-empty role",
+                ));
+            }
+            if principal_id.is_some() {
+                return Err(bad_request(
+                    "principal_type 'role' must not include a principal_id",
+                ));
+            }
+        }
+        other => {
+            return Err(bad_request(format!(
+                "invalid principal_type '{other}', expected 'user' or 'role'"
+            )));
+        }
+    }
+    Ok(())
+}
 
 /// Get the Access Control List for a document.
 #[utoipa::path(
@@ -72,6 +118,14 @@ pub async fn put_acl(
 ) -> Result<StatusCode, ProblemDetails> {
     auth.require_scope("document:write")?;
     enforce_permission(&state.pool, &auth, id, Permission::Admin).await?;
+    for r in &rules {
+        validate_acl_entry(
+            &r.principal_type,
+            r.principal_id,
+            r.role.as_deref(),
+            &r.permission,
+        )?;
+    }
     let mut tx = state.pool.begin().await.map_err(internal)?;
     AclRepo::delete_by_document_id(&mut tx, id)
         .await
@@ -169,6 +223,29 @@ pub async fn patch_acl(
     for entry in ops {
         match entry.op.as_str() {
             "add" => {
+                validate_acl_entry(
+                    &entry.principal_type,
+                    entry.principal_id,
+                    entry.role.as_deref(),
+                    &entry.permission,
+                )?;
+                // Idempotent add: replace any prior entry for the same principal
+                // before inserting the new one. Each (document, principal) pair
+                // therefore holds at most one ACL row.
+                sqlx::query(
+                    "DELETE FROM document_acl WHERE document_id = $1 \
+                     AND principal_type = $2 \
+                     AND (principal_id = $3 OR ($3 IS NULL AND principal_id IS NULL)) \
+                     AND (role = $4 OR ($4 IS NULL AND role IS NULL))",
+                )
+                .bind(id)
+                .bind(&entry.principal_type)
+                .bind(entry.principal_id)
+                .bind(&entry.role)
+                .execute(&mut *tx)
+                .await
+                .map_err(internal)?;
+
                 let acl = DocumentAcl {
                     id: Uuid::new_v4(),
                     document_id: id,
@@ -197,7 +274,7 @@ pub async fn patch_acl(
                 .map_err(internal)?;
             }
             _ => {
-                return Err(super::error::bad_request(format!(
+                return Err(bad_request(format!(
                     "unknown op: '{}', expected 'add' or 'remove'",
                     entry.op
                 )));

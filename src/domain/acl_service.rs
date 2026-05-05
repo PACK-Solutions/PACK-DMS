@@ -199,3 +199,70 @@ impl AclService {
         Ok(readable)
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn admin_implies_write_and_read() {
+        let set = Permission::Admin.implied();
+        assert!(set.contains(&Permission::Admin));
+        assert!(set.contains(&Permission::Write));
+        assert!(set.contains(&Permission::Read));
+        assert_eq!(set.len(), 3);
+    }
+
+    #[test]
+    fn write_implies_read_only() {
+        let set = Permission::Write.implied();
+        assert!(set.contains(&Permission::Write));
+        assert!(set.contains(&Permission::Read));
+        assert!(!set.contains(&Permission::Admin));
+        assert_eq!(set.len(), 2);
+    }
+
+    #[test]
+    fn read_implies_only_self() {
+        let set = Permission::Read.implied();
+        assert!(set.contains(&Permission::Read));
+        assert!(!set.contains(&Permission::Write));
+        assert!(!set.contains(&Permission::Admin));
+        assert_eq!(set.len(), 1);
+    }
+
+    #[test]
+    fn from_str_parses_known_values() {
+        assert_eq!(Permission::from_str("read"), Some(Permission::Read));
+        assert_eq!(Permission::from_str("write"), Some(Permission::Write));
+        assert_eq!(Permission::from_str("admin"), Some(Permission::Admin));
+    }
+
+    #[test]
+    fn from_str_rejects_unknown_values() {
+        assert_eq!(Permission::from_str(""), None);
+        assert_eq!(Permission::from_str("delete"), None);
+        assert_eq!(Permission::from_str("Admin"), None); // case-sensitive
+        assert_eq!(Permission::from_str("execute"), None);
+    }
+
+    #[test]
+    fn effective_permissions_has_checks_membership() {
+        let perms = EffectivePermissions {
+            permissions: Permission::Write.implied(),
+        };
+        assert!(perms.has(Permission::Write));
+        assert!(perms.has(Permission::Read));
+        assert!(!perms.has(Permission::Admin));
+    }
+
+    #[test]
+    fn effective_permissions_empty_grants_nothing() {
+        let perms = EffectivePermissions {
+            permissions: HashSet::new(),
+        };
+        assert!(!perms.has(Permission::Read));
+        assert!(!perms.has(Permission::Write));
+        assert!(!perms.has(Permission::Admin));
+    }
+}
